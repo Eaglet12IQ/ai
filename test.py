@@ -3,9 +3,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.hub
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
-from torchvision.models import resnet50
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
@@ -16,7 +14,7 @@ from sklearn.metrics import ndcg_score
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.amp import GradScaler
 
 # Фиксация генераторов случайных чисел
@@ -45,11 +43,10 @@ CFG = {
     'img_size': 360,
     'batch_size': 32,
     'num_workers': 6,
-    'warmup_epochs': 5,
     'grad_clip': 0.5,  # Уменьшен для большей стабильности
     'weight_decay': 0.05,
-    'head_lr': 5e-5,   # Уменьшен для головы
-    'backbone_lr': 1e-6,  # Уменьшен для backbone
+    'head_lr': 1e-4,   # Уменьшен для головы
+    'backbone_lr': 1e-5,  # Уменьшен для backbone
     'min_lr': 5e-7,
     'epochs': 150,
     'swa_start': 80,
@@ -175,64 +172,52 @@ class EnhancedAnimeRanker(nn.Module):
         scores = scores.view(batch_size, 5)
         return scores
 
-class LambdaLoss(nn.Module):
-    def __init__(self, k=5, margin=1.0, epsilon=1e-8):
+class CombinedLoss(nn.Module):
+    def __init__(self, target_prob=0.9, margin=1.5, top1_weight=0.75, pairwise_weight=0.15, score_separation_weight=0.1, epsilon=1e-6):
         super().__init__()
-        self.k = k  # Для NDCG@k
+        self.target_prob = target_prob
         self.margin = margin
+        self.top1_weight = top1_weight
+        self.pairwise_weight = pairwise_weight
+        self.score_separation_weight = score_separation_weight
         self.epsilon = epsilon
         self.sigmoid = nn.Sigmoid()
     
-    def compute_ndcg_weights(self, scores, targets):
-        batch_size = scores.size(0)
-        weights = torch.zeros_like(scores)
-        dcg_max = torch.zeros(batch_size, device=scores.device)
-        
-        for i in range(batch_size):
-            true_label = targets[i].item()
-            true_relevance = torch.zeros(5, device=scores.device)
-            true_relevance[true_label] = 1.0  # Лучшее изображение получает релевантность 1
-            sorted_indices = torch.argsort(scores[i], descending=True)
-            ranked_relevance = true_relevance[sorted_indices]
-            
-            # Вычисляем DCG@k
-            gains = 2 ** ranked_relevance - 1
-            discounts = torch.log2(torch.arange(1, self.k + 1, device=scores.device) + 1)
-            dcg = torch.sum(gains[:self.k] / discounts[:self.k])
-            
-            # Вычисляем IDCG@k (идеальный DCG)
-            ideal_relevance = torch.sort(true_relevance, descending=True)[0]
-            idcg = torch.sum((2 ** ideal_relevance[:self.k] - 1) / discounts[:self.k])
-            
-            # Вес для каждой позиции на основе вклада в NDCG
-            for j in range(5):
-                for k in range(j + 1, 5):
-                    if true_relevance[j] > true_relevance[k]:
-                        delta_ndcg = (2 ** true_relevance[j] - 2 ** true_relevance[k]) * (
-                            1 / torch.log2(torch.tensor(j + 2, device=scores.device)) -
-                            1 / torch.log2(torch.tensor(k + 2, device=scores.device))
-                        ) / (idcg + self.epsilon)
-                        weights[i, j] += delta_ndcg
-                        weights[i, k] -= delta_ndcg
-        return weights.abs()
-
     def forward(self, scores, targets):
-        batch_size = scores.size(0)
-        loss = 0.0
-        weights = self.compute_ndcg_weights(scores, targets)
+        # Top1ProbabilityLoss
+        probs = torch.softmax(scores, dim=1)
+        top1_probs = torch.gather(probs, dim=1, index=targets.unsqueeze(1)).squeeze(1)
+        top1_loss = -torch.mean(
+            self.target_prob * torch.log(top1_probs + self.epsilon) +
+            (1.0 - self.target_prob) * torch.log(1.0 - top1_probs + self.epsilon)
+        )
         
+        # PairwiseLoss
+        pairwise_loss = 0.0
+        batch_size = scores.size(0)
         for i in range(batch_size):
+            best_idx = targets[i]
+            best_score = scores[i, best_idx]
             for j in range(5):
-                for k in range(j + 1, 5):
-                    if targets[i] == j:
-                        pos_score = scores[i, j]
-                        neg_score = scores[i, k]
-                        diff = pos_score - neg_score - self.margin
-                        diff = torch.clamp(diff, min=-10.0, max=10.0)
-                        pair_loss = -torch.log(self.sigmoid(diff) + self.epsilon)
-                        # Масштабируем потерю на основе веса NDCG
-                        loss += weights[i, j] * pair_loss
-        return loss / (batch_size * 10)  # Нормализация по количеству пар
+                if j != best_idx:
+                    diff = best_score - scores[i, j] - self.margin
+                    diff = torch.clamp(diff, min=-10.0, max=10.0)
+                    pairwise_loss += -torch.log(self.sigmoid(diff) + self.epsilon)
+        pairwise_loss = pairwise_loss / (batch_size * 4)
+        
+        # Score separation loss
+        score_separation_loss = 0.0
+        for i in range(batch_size):
+            best_idx = targets[i]
+            best_score = scores[i, best_idx]
+            other_scores = torch.cat([scores[i, :best_idx], scores[i, best_idx+1:]])
+            score_separation_loss += torch.mean(torch.relu(self.margin - (best_score - other_scores)))
+        score_separation_loss = score_separation_loss / batch_size
+        
+        # Combined loss
+        loss = self.top1_weight * top1_loss + self.pairwise_weight * pairwise_loss + self.score_separation_weight * score_separation_loss
+        
+        return loss
 
 def load_and_evaluate(model_path, model_class, loader, device):
     model = model_class().to(device)
@@ -375,8 +360,8 @@ def train():
         
         swa_model = AveragedModel(model)
         swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
-        scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
-        criterion = nn.CrossEntropyLoss()
+        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
+        criterion = CombinedLoss()
         scaler = GradScaler('cuda')
         
         best_ndcg = 0
@@ -490,6 +475,7 @@ def train():
             print(f"Train Loss: {history['train_loss'][-1]:.4f}")
             print(f"Val NDCG: {val_metrics['ndcg']:.4f}")
             print(f"Val Top-1 Accuracy: {val_metrics['top1']:.4f}")
+            print(f"Val Top-2 Accuracy: {val_metrics['top2']:.4f}")
             print(f"Avg Head Grad Norm: {avg_head_grad_norm:.4f}")
             print(f"Avg Backbone Grad Norm: {avg_backbone_grad_norm:.4f}")
             print("-" * 50)
@@ -573,8 +559,8 @@ def train():
     
     swa_model = AveragedModel(final_model)
     swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
-    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
-    criterion = nn.CrossEntropyLoss()
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
+    criterion = CombinedLoss()
     
     best_ndcg = 0
     best_top1 = 0
@@ -687,6 +673,7 @@ def train():
         print(f"Train Loss: {final_history['train_loss'][-1]:.4f}")
         print(f"Val NDCG: {val_metrics['ndcg']:.4f}")
         print(f"Val Top-1 Accuracy: {val_metrics['top1']:.4f}")
+        print(f"Val Top-2 Accuracy: {val_metrics['top2']:.4f}")
         print(f"Avg Head Grad Norm: {avg_head_grad_norm:.4f}")
         print(f"Avg Backbone Grad Norm: {avg_backbone_grad_norm:.4f}")
         print("-" * 50)
@@ -707,75 +694,3 @@ def train():
 
 if __name__ == '__main__':
     train()
-
-
-# def compute_dataset_stats(dataset_path, img_size=360):
-#     mean, std = [], []
-#     processed_groups = 0
-#     processed_images = 0
-    
-#     # Трансформация для ресайза изображений
-#     resize_transform = A.Compose([
-#         A.Resize(img_size, img_size),
-#     ])
-    
-#     # Получаем список всех папок в dataset_path
-#     all_groups = [d for d in os.listdir(dataset_path) if os.path.isdir(os.path.join(dataset_path, d))]
-    
-#     for group in tqdm(all_groups, desc="Processing groups"):
-#         group_path = os.path.join(dataset_path, group)
-        
-#         # Проверяем, что папка содержит .png файлы
-#         png_files = [f for f in os.listdir(group_path) if f.endswith('.png')]
-#         if not png_files:
-#             print(f"Skipping group {group}: No .png files found")
-#             continue
-        
-#         # Проверяем наличие и корректность best.txt
-#         best_txt = os.path.join(group_path, 'best.txt')
-#         if os.path.exists(best_txt):
-#             with open(best_txt, 'r') as f:
-#                 best_file = f.read().strip()
-#             if best_file not in png_files:
-#                 print(f"Warning: Invalid best.txt in {group_path}, file {best_file} not found")
-#                 continue
-#         else:
-#             print(f"Warning: Missing best.txt in {group_path}")
-#             continue
-        
-#         # Обрабатываем изображения в группе
-#         for img_file in png_files:
-#             img_path = os.path.join(group_path, img_file)
-#             try:
-#                 # Загружаем изображение
-#                 img = np.array(Image.open(img_path).convert('RGB'))
-#                 # Применяем ресайз
-#                 img_resized = resize_transform(image=img)['image'] / 255.0
-#                 if np.any(np.isnan(img_resized)) or np.any(np.isinf(img_resized)):
-#                     print(f"Warning: NaN or Inf in image {img_path}")
-#                     continue
-#                 mean.append(img_resized.mean(axis=(0, 1)))
-#                 std.append(img_resized.std(axis=(0, 1)))
-#                 processed_images += 1
-#             except Exception as e:
-#                 print(f"Error processing image {img_path}: {e}")
-#                 continue
-        
-#         processed_groups += 1
-    
-#     if not mean or not std:
-#         raise ValueError(f"No valid images found for computing stats in {dataset_path}")
-    
-#     mean = np.mean(mean, axis=0)
-#     std = np.mean(std, axis=0)
-    
-#     print(f"Processed {processed_groups} groups and {processed_images} images")
-#     print(f"Computed mean: {mean}, std: {std}")
-#     return mean, std
-
-# # Вызов функции
-# computed_mean, computed_std = compute_dataset_stats(CFG['dataset_path'], img_size=CFG['img_size'])
-# current_mean = [0.7137, 0.6628, 0.6519]
-# current_std = [0.2970, 0.3017, 0.2979]
-# print(f"Current mean: {current_mean}, Current std: {current_std}")
-# print(f"Computed mean: {computed_mean}, Computed std: {computed_std}")
