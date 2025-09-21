@@ -204,6 +204,14 @@ class PairwiseRankingLoss(nn.Module):
         loss = torch.log1p(torch.exp(-diff))  # log(1 + exp(-diff))
         return loss.mean()
 
+def read_groups_from_txt(file_path):
+    """Чтение списка групп из txt файла, по одной группе на строку"""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Файл {file_path} не найден")
+    with open(file_path, "r") as f:
+        groups = [line.strip() for line in f.readlines() if line.strip()]
+    return groups
+
 def evaluate(model, dataloader, device):
     model.eval()
     top1_correct = 0
@@ -290,20 +298,19 @@ def visualize_predictions(model, dataset, num_examples=5):
 def train():
     Path(CFG['retrain_dir']).mkdir(parents=True, exist_ok=True)
     
-    all_groups = get_valid_groups(CFG["dataset_path"])
-
-    train_groups, val_groups = train_test_split(
-        all_groups,
-        test_size=0.1,
-        random_state=seed
-    )
+    # Загружаем группы из txt
+    train_txt = os.path.join(BASE_DIR, "train.txt")
+    val_txt = os.path.join(BASE_DIR, "val.txt")
+    
+    train_groups = read_groups_from_txt(train_txt)
+    val_groups = read_groups_from_txt(val_txt)
     
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
     
     train_loader = DataLoader(
-        ConcatDataset([train_ds, retrain_ds]),
+        train_ds,
         batch_size=CFG['batch_size'],
         shuffle=True,
         num_workers=CFG['num_workers'],
