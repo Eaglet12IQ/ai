@@ -292,3 +292,6 @@ halloween_dare_succubus_lingerie
 numbered
 radar_alert_(umamusume)_(meme)
 character_print
+polka_dot_background
+heads-up_display
+striped_background

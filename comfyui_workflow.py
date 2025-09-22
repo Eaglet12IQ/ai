@@ -83,6 +83,24 @@ def get_tags_for_date(current_date, depth=0, max_depth=30):
     
     return data
 
+def find_valid_tag(current_date, existing_tags, used_tags, depth=0, max_depth=30):
+    if depth > max_depth:
+        print("Достигнут максимум рекурсивных вызовов для поиска тега (30 дней).")
+        return None
+    
+    tags_data = get_tags_for_date(current_date)
+    if not tags_data:
+        print(f"Не удалось получить теги для {current_date.strftime('%Y-%m-%d')}. Пробуем следующий день.")
+        return find_valid_tag(current_date - timedelta(days=1), existing_tags, used_tags, depth + 1, max_depth)
+    
+    for item in tags_data:
+        tag_candidate = item['tag']
+        if tag_candidate in existing_tags and tag_candidate not in used_tags:
+            return tag_candidate
+    
+    print(f"Не найдено подходящих тегов для {current_date.strftime('%Y-%m-%d')}. Пробуем следующий день.")
+    return find_valid_tag(current_date - timedelta(days=1), existing_tags, used_tags, depth + 1, max_depth)
+
 # Читаем tags.txt
 txt_file = r'D:\Python Scripts\ai\danbooru_api\character_tags.txt'
 try:
@@ -109,21 +127,12 @@ for i in range(0, count):
         search_type = tags[i][1]
     if tag == "top character":
         today = datetime.now()
-        
-        # Получаем теги (рекурсивно, если нужно)
-        tags_data = get_tags_for_date(today)
-        
-        if not tags_data:
-            print(f"Итерация {i}: Не удалось получить теги даже после откатов.")
+        tag = find_valid_tag(today, existing_tags, used_tags)
+        if tag is None:
+            print(f"Итерация {i}: Не удалось найти подходящий тег после всех попыток.")
             continue
-        
-        # Ищем первый тег из топа, который есть в txt и не использован
-        for item in tags_data:
-            tag_candidate = item['tag']
-            if tag_candidate in existing_tags and tag_candidate not in used_tags:
-                tag = tag_candidate
-                used_tags.add(tag_candidate)
-                break
+        used_tags.add(tag)
+        print(f"Итерация {i}: Выбран тег {tag}")
     
     # Используем выбранный тег вместо 'random character'
     posts, user_tag_formatted = main(search_type, tag, rating)

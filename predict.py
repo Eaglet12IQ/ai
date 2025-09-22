@@ -81,7 +81,7 @@ def clean_tag(tag: str) -> str:
 def extract_positive_tags(image_path, description_path=None, max_tags=30):
     """
     Достаёт positive-теги из блока "110" PNG-метаданных и добавляет хеш-теги из последней строки description.
-    Пробелы и запятые заменяются на пустоту, повторов нет.
+    Пробелы, запятые и тире заменяются на пустоту, повторов нет.
     Теги из description ставятся в начало и обязательно включаются.
     """
     banned = {"gogalking:0.8", "loika:0.15", "33gaff:0.05"}  # уже в очищенном виде
@@ -100,7 +100,7 @@ def extract_positive_tags(image_path, description_path=None, max_tags=30):
                 raw_tags = positive.split(",")
                 tags = []
                 for t in raw_tags:
-                    t_clean = clean_tag(t).replace(" ", "")
+                    t_clean = clean_tag(t).replace(" ", "").replace("-", "")
                     if t_clean and t_clean not in banned:
                         tags.append(t_clean)
 
@@ -111,7 +111,7 @@ def extract_positive_tags(image_path, description_path=None, max_tags=30):
                 lines = [line.strip() for line in f.readlines() if line.strip()]
                 if lines:
                     last_line = lines[-1]
-                    desc_tags = [clean_tag(t).replace(" ", "").lower() for t in last_line.split() if t.startswith("#")]
+                    desc_tags = [clean_tag(t).replace(" ", "").replace("-", "").replace(":", "").lower() for t in last_line.split() if t.startswith("#")]
                     desc_tags = [t[1:] if t.startswith("#") else t for t in desc_tags]
 
         # Объединяем, убираем дубликаты
