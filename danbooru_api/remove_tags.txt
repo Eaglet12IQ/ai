@@ -295,3 +295,4 @@ character_print
 polka_dot_background
 heads-up_display
 striped_background
+no_nipples

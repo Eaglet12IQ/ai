@@ -146,7 +146,7 @@ for i in range(0, count):
         clean = part.replace('(', '').replace(')', '').replace(' ', '').replace(':', '')
         hashtags.append(f"#{clean}")
 
-    description = f"{user_tag_formatted}\n\nThe first buyer on DeviantArt also receives an archive containing the full set of 125 images in the highest quality.\n\nYou can also check out my Patreon, which includes all the sets plus a variety of other exclusive content only for Patreon subscribers.\n\n{' '.join(hashtags)}"
+    description = f"{user_tag_formatted}\n\nYou can also check out my Patreon, which includes all the sets, each containing 125 images.\n\n{' '.join(hashtags)}\n\nThe first buyer of this exclusive also receives an archive containing the full set of 125 images in the highest quality."
 
     API_URL = "http://127.0.0.1:8188/prompt"
 
