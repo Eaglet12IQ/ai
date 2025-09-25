@@ -7,6 +7,7 @@ import os
 import pickle
 from sklearn.model_selection import train_test_split
 import numpy as np
+import math
 
 # Фиксация случайных чисел для воспроизводимости
 random.seed(42)
@@ -14,12 +15,12 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Проверка наличия файлов
-if not os.path.exists('prompt_dataset.csv'):
+if not os.path.exists('llm/prompt_dataset.csv'):
     raise FileNotFoundError("File 'prompt_dataset.csv' not found. Please ensure it exists in the working directory.")
 
 # Загрузка датасета
 try:
-    df = pd.read_csv('prompt_dataset.csv')
+    df = pd.read_csv('llm/prompt_dataset.csv')
 except Exception as e:
     raise Exception(f"Error loading dataset: {e}")
 
@@ -34,7 +35,7 @@ if df.empty:
     raise ValueError("Dataset is empty. Please check 'prompt_dataset.csv'.")
 
 # Построение словаря тегов
-tags_file = 'all_tags.pkl'
+tags_file = 'llm/all_tags.pkl'
 if os.path.exists(tags_file):
     with open(tags_file, 'rb') as f:
         all_tags = pickle.load(f)
@@ -96,7 +97,7 @@ class PromptDataset(Dataset):
         }
 
 # Разделение данных
-train_df, val_df = train_test_split(df, test_size=0.001, random_state=42)
+train_df, val_df = train_test_split(df, test_size=0.1, random_state=42)
 
 # Инициализация токенизатора и модели
 try:
@@ -109,22 +110,27 @@ except Exception as e:
 train_dataset = PromptDataset(train_df['input'].values, train_df['output'].values, tokenizer)
 val_dataset = PromptDataset(val_df['input'].values, val_df['output'].values, tokenizer)
 
+# Рассчитываем шаги для 10 сохранений
+total_steps = math.ceil(len(train_dataset) / 16)  # per_device_train_batch_size = 16
+save_steps = total_steps // 10  # Для 10 сохранений
+logging_steps = save_steps  # Логирование с той же частотой
+
 # Настройка параметров обучения
 training_args = TrainingArguments(
-    output_dir='./t5_prompt_model',
+    output_dir='llm/t5_prompt_model',
     num_train_epochs=1,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     warmup_steps=500,
     weight_decay=0.01,
-    logging_dir='./logs',
-    logging_steps=100,
+    logging_dir='llm/logs',
+    logging_steps=logging_steps,
     eval_strategy='steps',
     save_strategy='steps',
-    save_steps=100,
+    save_steps=save_steps,
     load_best_model_at_end=True,
-    metric_for_best_model='loss',  # Используем loss вместо метрик
-    greater_is_better=False,       # Меньший loss лучше
+    metric_for_best_model='loss',
+    greater_is_better=False,
     fp16=torch.cuda.is_available(),
 )
 
@@ -134,7 +140,6 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_dataset,
     eval_dataset=val_dataset,
-    # compute_metrics удалено
 )
 
 # Обучение модели
@@ -145,9 +150,9 @@ except Exception as e:
     raise
 
 # Сохранение модели и токенизатора
-trainer.save_model('./t5_prompt_model')
-model.save_pretrained('./t5_prompt_model')
-tokenizer.save_pretrained('./t5_prompt_model')
+trainer.save_model('llm/t5_prompt_model')
+model.save_pretrained('llm/t5_prompt_model')
+tokenizer.save_pretrained('llm/t5_prompt_model')
 
 # Генерация уникального промпта
 def generate_unique_prompt(input_word, model, tokenizer, max_length=50):
@@ -171,9 +176,9 @@ def generate_unique_prompt(input_word, model, tokenizer, max_length=50):
 
 # Тестирование генерации
 try:
-    model = T5ForConditionalGeneration.from_pretrained('./t5_prompt_model')
-    tokenizer = T5Tokenizer.from_pretrained('./t5_prompt_model')
-    test_words = ['rio \\(blue archive\\)', '1girl', 'breasts', 'long hair', 'frieren']
+    model = T5ForConditionalGeneration.from_pretrained('llm/t5_prompt_model')
+    tokenizer = T5Tokenizer.from_pretrained('llm/t5_prompt_model')
+    test_words = ['rio (blue archive)', '1girl', 'breasts', 'long hair', 'frieren', 'agnes tachyon (umamusume), nipples']
     for word in test_words:
         print(f"Input: {word}")
         for i in range(3):  # Генерируем 3 варианта для разнообразия

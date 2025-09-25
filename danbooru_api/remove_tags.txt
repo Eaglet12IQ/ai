@@ -296,3 +296,7 @@ polka_dot_background
 heads-up_display
 striped_background
 no_nipples
+battery_indicator
+pornography_production
+milestone_celebration
+body_writing

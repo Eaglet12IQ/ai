@@ -19,9 +19,9 @@ cursor.execute("SELECT tags FROM posts")
 prompts = [row[0] for row in cursor.fetchall()]
 conn.close()
 
-# Функция для экранирования всех обратных слэшей
-def escape_backslashes(tag):
-    return tag.replace('\\', '\\\\')
+# Функция для удаления всех обратных слэшей
+def remove_backslashes(tag):
+    return tag.replace('\\', '')
 
 # Функция для создания датасета
 def create_dataset(prompts):
@@ -41,12 +41,12 @@ def create_dataset(prompts):
         if not filtered_words:
             continue
         
-        # Экранируем все обратные слэши
-        filtered_words = [escape_backslashes(word) for word in filtered_words]
+        # Удаляем все обратные слэши
+        filtered_words = [remove_backslashes(word) for word in filtered_words]
         filtered_prompt = ", ".join(filtered_words)
         
-        # Создаем все комбинации тегов от 2 до len(filtered_words)
-        for r in range(1, min(2, len(filtered_words)) + 1):
+        # Создаем все комбинации тегов от 1 до len(filtered_words)
+        for r in range(1, min(1, len(filtered_words)) + 1):
             for combo in itertools.combinations(filtered_words, r):
                 dataset.append({
                     "input": ", ".join(combo),
@@ -58,7 +58,7 @@ def create_dataset(prompts):
 dataset = create_dataset(prompts)
 
 # Сохраняем датасет в CSV
-output_file = "prompt_dataset.csv"
+output_file = "llm/prompt_dataset.csv"
 with open(output_file, "w", newline="", encoding="utf-8") as f:
     writer = csv.DictWriter(f, fieldnames=["input", "output"])
     writer.writeheader()

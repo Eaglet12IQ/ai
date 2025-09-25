@@ -117,7 +117,7 @@ used_tags = set()
 
 count = 3
 search_type = "character"  # character/general
-tags = [["top character", "character"], ["top character", "character"], ["top character", "character"]] # top character/random character
+tags = [["yoru_(chainsaw_man)", "character"], ["zero_two_(darling_in_the_franxx)", "character"], ["top character", "character"]] # top character/random character
 rating = "all"  # questionable/sensitive/general/all
 
 # Цикл на count раз
