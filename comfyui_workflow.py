@@ -9,8 +9,24 @@ from predict import select_best_4level_flat
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-# Функция для получения тегов по дате (рекурсивно)
-def get_tags_for_date(current_date, depth=0, max_depth=30):
+def load_proxies_from_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        lines = response.text.strip().split('\n')
+        proxies = []
+        for line in lines:
+            if line.strip():
+                parts = line.strip().split(':')
+                if len(parts) == 4:
+                    ip, port, username, password = parts
+                    proxies.append(f"http://{username}:{password}@{ip}:{port}")
+        return proxies
+    except requests.RequestException as e:
+        print(f"Ошибка при загрузке списка прокси: {e}")
+        return []
+
+def get_tags_for_date(current_date, depth=0, max_depth=30, proxies_list=None):
     if depth > max_depth:
         print("Достигнут максимум откатов по датам (30 дней). Нет тегов.")
         return []
@@ -18,48 +34,57 @@ def get_tags_for_date(current_date, depth=0, max_depth=30):
     date_str = current_date.strftime('%Y-%m-%d')
     url = f'https://danbooru.donmai.us/explore/posts/searches?date={date_str}'
     
-    # Настройка прокси (закомментируйте, если не работает)
-    proxy = "http://npyuqomx:jpod2zw7iwg1@84.247.60.125:6095"
-    proxies = {
-        'http': proxy,
-        'https': proxy
-    }
+    if not proxies_list:
+        proxies_list = load_proxies_from_url("https://proxy.webshare.io/api/v2/proxy/list/download/jxerjrnkysbdnhlzhnhnglewhvjalpupcunqxutc/-/any/username/direct/-/?plan_id=11389346")
     
-    # Создаём сессию
     session = requests.Session()
-    session.proxies.update(proxies)  # Закомментируйте, если прокси не работает
     
-    # Retry-логика
-    max_retries = 3
-    response = None
-    for attempt in range(max_retries):
+    if not proxies_list:
+        print("Ошибка: список прокси пуст. Выполняю запрос без прокси.")
         try:
             response = session.get(url, timeout=10)
             response.raise_for_status()
-            break
         except requests.exceptions.ConnectionError as e:
-            print(f"Ошибка соединения (попытка {attempt + 1}): {e}")
-            if attempt == max_retries - 1:
-                print("Все попытки исчерпаны.")
-                return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth)
-            time.sleep(2 ** attempt)
+            print(f"Ошибка соединения без прокси: {e}")
+            return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
         except requests.exceptions.RequestException as e:
-            print(f"Другая ошибка запроса: {e}")
-            return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth)
+            print(f"Другая ошибка запроса без прокси: {e}")
+            return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
+    else:
+        max_retries = 3
+        for proxy in proxies_list:
+            session.proxies.update({'http': proxy, 'https': proxy})
+            for attempt in range(max_retries):
+                try:
+                    response = session.get(url, timeout=10)
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.ConnectionError as e:
+                    print(f"Ошибка соединения с прокси {proxy} (попытка {attempt + 1}): {e}")
+                    if attempt == max_retries - 1:
+                        print(f"Все попытки с прокси {proxy} исчерпаны, пробую следующий.")
+                        break
+                    time.sleep(2 ** attempt)
+                except requests.exceptions.RequestException as e:
+                    print(f"Другая ошибка запроса с прокси {proxy}: {e}")
+                    break
+            else:
+                continue
+            break
+        else:
+            print("Ошибка: все прокси из списка не работают.")
+            return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
     
     if not response:
-        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth)
+        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
     
-    # Парсинг HTML
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    # Поиск таблицы с тегами
     table = soup.find('tbody')
     if not table:
         print("Таблица с тегами не найдена.")
-        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth)
+        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
     
-    # Извлечение строк
     rows = table.find_all('tr')
     data = []
     for row in rows:
@@ -74,12 +99,11 @@ def get_tags_for_date(current_date, depth=0, max_depth=30):
                 count_val = 0
             data.append({'tag': tag, 'count': count_val})
     
-    # Сортировка по count (убывание)
     data = sorted(data, key=lambda x: x['count'], reverse=True)
     
     if not data:
         print(f"Тегов не найдено для {date_str}, откатываемся на предыдущий день.")
-        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth)
+        return get_tags_for_date(current_date - timedelta(days=1), depth + 1, max_depth, proxies_list)
     
     return data
 
@@ -101,7 +125,6 @@ def find_valid_tag(current_date, existing_tags, used_tags, depth=0, max_depth=30
     print(f"Не найдено подходящих тегов для {current_date.strftime('%Y-%m-%d')}. Пробуем следующий день.")
     return find_valid_tag(current_date - timedelta(days=1), existing_tags, used_tags, depth + 1, max_depth)
 
-# Читаем tags.txt
 txt_file = r'D:\Python Scripts\ai\danbooru_api\character_tags.txt'
 try:
     with open(txt_file, 'r', encoding='utf-8') as f:
@@ -112,15 +135,13 @@ except FileNotFoundError:
     with open(txt_file, 'w', encoding='utf-8') as f:
         pass
 
-# Set для использованных тегов
 used_tags = set()
 
 count = 3
-search_type = "character"  # character/general
-tags = [["yoru_(chainsaw_man)", "character"], ["zero_two_(darling_in_the_franxx)", "character"], ["top character", "character"]] # top character/random character
-rating = "all"  # questionable/sensitive/general/all
+search_type = "character"
+tags = [["hatsune_miku", "character"], ["lucy_heartfilia", "character"], ["makima_(chainsaw_man)", "character"]]
+rating = "all"
 
-# Цикл на count раз
 for i in range(0, count):
     if isinstance(tags, list):
         tag = tags[i][0]
@@ -134,7 +155,6 @@ for i in range(0, count):
         used_tags.add(tag)
         print(f"Итерация {i}: Выбран тег {tag}")
     
-    # Используем выбранный тег вместо 'random character'
     posts, user_tag_formatted = main(search_type, tag, rating)
 
     parts = re.split(r'(\(.*?\))', user_tag_formatted.split(" |")[0])
@@ -154,14 +174,11 @@ for i in range(0, count):
     expected_count = 125
     check_interval = 60
 
-    # Путь к файлу workflow
     workflow_file = "Unsaved Workflow(1).json"
 
-    # Чтение workflow из файла
     with open(workflow_file, "r") as f:
         workflow = json.load(f)
 
-    # Новый промпт
     base_prompt = ", (gogalking:0.8), (loika:0.15), (33 gaff:0.05), masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, detailed eyes"
 
     for post in posts:
@@ -171,7 +188,6 @@ for i in range(0, count):
         if "110" in workflow:
             workflow["110"]["inputs"]["positive"] = full_prompt
 
-        # Запоминаем, сколько файлов было изначально
         prev_count = len([f for f in os.listdir(copy_from_dir) 
                          if os.path.isfile(os.path.join(copy_from_dir, f)) and f.lower().endswith('.png')])
 
@@ -184,7 +200,6 @@ for i in range(0, count):
                 "prompt": workflow
             }
 
-            # Отправка workflow на выполнение
             response = requests.post(API_URL, json=data)
 
             if response.status_code != 200:

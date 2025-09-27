@@ -110,7 +110,7 @@ def extract_positive_tags(image_path, description_path=None, max_tags=30):
             with open(description_path, "r", encoding="utf-8") as f:
                 lines = [line.strip() for line in f.readlines() if line.strip()]
                 if lines:
-                    last_line = lines[-1]
+                    last_line = lines[-2]
                     desc_tags = [clean_tag(t).replace(" ", "").replace("-", "").replace(":", "").lower() for t in last_line.split() if t.startswith("#")]
                     desc_tags = [t[1:] if t.startswith("#") else t for t in desc_tags]
 

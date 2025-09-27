@@ -3,13 +3,12 @@ import random
 import torch
 import torch.nn as nn
 import torch.hub
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
+from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
 import numpy as np
 from pathlib import Path
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import ndcg_score
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -53,6 +52,52 @@ def get_valid_groups(root_dir):
                 valid_groups.append(group)
     return valid_groups
 
+def read_groups_from_txt(file_path):
+    """Чтение списка групп из txt файла, по одной группе на строку"""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Файл {file_path} не найден")
+    with open(file_path, "r") as f:
+        groups = [line.strip() for line in f.readlines() if line.strip()]
+    return groups
+
+def extract_and_save_tags(root_dir, groups):
+    tag_model = torch.hub.load('RF5/danbooru-pretrained', 'resnet50').to(CFG['device']).eval()
+    text_encoder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    tag_transform = A.Compose([
+        A.Resize(360, 360),
+        A.Normalize(mean=[0.7137, 0.6628, 0.6519], std=[0.2970, 0.3017, 0.2979]),
+        ToTensorV2()
+    ], seed=seed)
+
+    for group in tqdm(groups, desc="Извлечение тегов"):
+        group_path = os.path.join(root_dir, group)
+        png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
+        tags_file = os.path.join(group_path, "tags.json")
+        
+        # Пропускаем, если теги уже сохранены
+        if os.path.exists(tags_file):
+            continue
+            
+        group_tags = {}
+        for img_file in png_files:
+            img_path = os.path.join(group_path, img_file)
+            img = Image.open(img_path).convert('RGB')
+            img_np = np.array(img)
+            if np.any(np.isnan(img_np)) or np.any(np.isinf(img_np)):
+                print(f"Предупреждение: NaN или Inf в изображении {img_path}")
+                img_np = np.zeros_like(img_np)
+            
+            img_tensor = tag_transform(image=img_np)['image'].unsqueeze(0).to(CFG['device'])
+            with torch.no_grad():
+                tag_probs = torch.sigmoid(tag_model(img_tensor)[0])
+                top_tags = torch.topk(tag_probs, k=10).indices.tolist()
+                tags_text = " ".join([class_names[i] for i in top_tags])
+                text_emb = text_encoder.encode(tags_text, convert_to_tensor=True).cpu().numpy().tolist()
+                group_tags[img_file] = text_emb
+        
+        with open(tags_file, 'w') as f:
+            json.dump(group_tags, f)
+
 def my_collate_fn(batch):
     best_images = torch.stack([item[0] for item in batch])
     other_images = torch.stack([item[1] for item in batch])
@@ -66,7 +111,7 @@ def worker_init_fn(worker_id):
     np.random.seed(seed + worker_id)
 
 CFG = {
-    'img_size': 224,  # Из статьи: ResNet50 работает лучше с 360x360
+    'img_size': 224,
     'batch_size': 32,
     'num_workers': 6,
     'grad_clip': 1.0,
@@ -81,7 +126,6 @@ CFG = {
     'dataset_path': os.path.join(BASE_DIR, "dataset")
 }
 
-# Аугментации с нормализацией из статьи для ResNet50
 train_transform = A.Compose([
     A.Resize(224, 224),
     A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05, p=0.5),
@@ -107,18 +151,10 @@ val_transform = A.Compose([
     ToTensorV2()
 ], seed=seed)
 
-tag_transform = A.Compose([
-    A.Resize(360, 360),
-    A.Normalize(mean=[0.7137, 0.6628, 0.6519], std=[0.2970, 0.3017, 0.2979]),
-    ToTensorV2()
-], seed=seed)
-
 class AnimeGroupDataset(Dataset):
     def __init__(self, root_dir, transform=None, groups=None):
         self.root_dir = root_dir
         self.transform = transform
-        self.tag_model = None  # Lazy loading to avoid pickling issues
-        self.text_encoder = None  # Lazy loading
         all_groups = groups or [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
         self.groups = []
         self.pairs = []
@@ -144,20 +180,18 @@ class AnimeGroupDataset(Dataset):
             else:
                 print(f"Предупреждение: файл best.txt не найден в группе {group}")
 
-    def _load_models(self):
-        if self.tag_model is None:
-            self.tag_model = torch.hub.load('RF5/danbooru-pretrained', 'resnet50').to(CFG['device']).eval()
-        if self.text_encoder is None:
-            self.text_encoder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')  # Explicitly on CPU
-
     def __len__(self):
         return len(self.pairs)
     
     def __getitem__(self, idx):
-        self._load_models()  # Lazy load models per worker
         group, best_idx, other_idx, target = self.pairs[idx]
         group_path = os.path.join(self.root_dir, group)
         png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
+        tags_file = os.path.join(group_path, "tags.json")
+        
+        # Загрузка сохранённых тегов
+        with open(tags_file, 'r') as f:
+            group_tags = json.load(f)
         
         best_img_path = os.path.join(group_path, png_files[best_idx])
         best_img = Image.open(best_img_path).convert('RGB')
@@ -173,21 +207,8 @@ class AnimeGroupDataset(Dataset):
             print(f"Предупреждение: NaN или Inf в другом изображении {other_img_path}")
             other_img_np = np.zeros_like(other_img_np)
         
-        # Извлечение тегов
-        best_img_tensor = tag_transform(image=best_img_np)['image'].unsqueeze(0).to(CFG['device'])
-        other_img_tensor = tag_transform(image=other_img_np)['image'].unsqueeze(0).to(CFG['device'])
-        
-        with torch.no_grad():
-            best_tag_probs = torch.sigmoid(self.tag_model(best_img_tensor)[0])
-            other_tag_probs = torch.sigmoid(self.tag_model(other_img_tensor)[0])
-            best_top_tags = torch.topk(best_tag_probs, k=10).indices.tolist()
-            other_top_tags = torch.topk(other_tag_probs, k=10).indices.tolist()
-        
-        best_tags_text = " ".join([class_names[i] for i in best_top_tags])
-        other_tags_text = " ".join([class_names[i] for i in other_top_tags])
-        
-        best_text_emb = self.text_encoder.encode(best_tags_text, convert_to_tensor=True)
-        other_text_emb = self.text_encoder.encode(other_tags_text, convert_to_tensor=True)
+        best_text_emb = torch.tensor(group_tags[png_files[best_idx]], dtype=torch.float32)
+        other_text_emb = torch.tensor(group_tags[png_files[other_idx]], dtype=torch.float32)
         
         if self.transform:
             best_img = self.transform(image=best_img_np)['image']
@@ -231,7 +252,6 @@ class EnhancedAnimeRanker(nn.Module):
         features = self.backbone(x)
         features = features.view(batch_size, num_images, -1)
         
-        # Handle text_emb dimension: if 2D (batch, emb), expand to (batch, num_images, emb)
         if text_emb.dim() == 2:
             text_emb = text_emb.unsqueeze(1).repeat(1, num_images, 1)
         
@@ -339,13 +359,16 @@ def visualize_predictions(model, dataset, num_examples=5):
 def train():
     Path(CFG['retrain_dir']).mkdir(parents=True, exist_ok=True)
     
-    all_groups = get_valid_groups(CFG["dataset_path"])
-
-    train_groups, val_groups = train_test_split(
-        all_groups,
-        test_size=0.1,
-        random_state=seed
-    )
+    # Загружаем группы из txt
+    train_txt = os.path.join(BASE_DIR, "train.txt")
+    val_txt = os.path.join(BASE_DIR, "val.txt")
+    
+    train_groups = read_groups_from_txt(train_txt)
+    val_groups = read_groups_from_txt(val_txt)
+    
+    # Извлечение и сохранение тегов перед обучением
+    all_groups = list(set(train_groups + val_groups))
+    extract_and_save_tags(CFG["dataset_path"], all_groups)
     
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
