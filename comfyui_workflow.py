@@ -139,7 +139,7 @@ used_tags = set()
 
 count = 3
 search_type = "character"
-tags = [["hatsune_miku", "character"], ["lucy_heartfilia", "character"], ["makima_(chainsaw_man)", "character"]]
+tags = [["higashiyama_kobeni", "character"], ["makima_(chainsaw_man)", "character"], ["yoru_(chainsaw_man)", "character"]]
 rating = "all"
 
 for i in range(0, count):

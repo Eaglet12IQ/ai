@@ -6,10 +6,10 @@ from tqdm import tqdm
 from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
-from train import (
+from new_top import (
     CFG, AnimeGroupDataset, train_transform, val_transform,
     my_collate_fn, worker_init_fn, EnhancedAnimeRanker,
-    PairwiseRankingLoss, evaluate, visualize_predictions
+    PairwiseRankingLoss, evaluate
 )
 
 def load_splits():
@@ -130,11 +130,7 @@ def retrain():
             print(f"⏹ Ранняя остановка на {epoch+1}-й эпохе")
             break
 
-    torch.save(model.state_dict(), "final_model.pth")
-    print("✅ Дообучение завершено. Модель сохранена как final_model.pth")
-
     model.load_state_dict(torch.load("best_model.pth", map_location=CFG['device']))
-    visualize_predictions(model, val_ds)
 
 if __name__ == "__main__":
     retrain()

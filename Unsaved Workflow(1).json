@@ -407,7 +407,7 @@
       "cfg": 5,
       "sampler_name": "euler_ancestral",
       "scheduler": "normal",
-      "denoise": 0.3,
+      "denoise": 0.25,
       "feather": 5,
       "noise_mask": true,
       "force_inpaint": true,

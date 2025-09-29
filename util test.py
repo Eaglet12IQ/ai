@@ -18,7 +18,7 @@ def reset_autoincrement(table_name, db_path="danbooru_api/danbooru_posts.db"):
 
 import sqlite3
 
-def delete_requests_and_posts(db_path="danbooru_api/danbooru_posts.db", ids_to_delete=(57, 58)):
+def delete_requests_and_posts(db_path="danbooru_api/danbooru_posts.db", ids_to_delete=(63, 64)):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
 

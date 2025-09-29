@@ -273,28 +273,6 @@ def evaluate(model, dataloader, device):
         'ndcg': mean_ndcg
     }
 
-def visualize_predictions(model, dataset, num_examples=5):
-    model.eval()
-    indices = np.random.choice(len(dataset), num_examples, replace=False)
-    
-    plt.figure(figsize=(15, 5 * num_examples))
-    for plot_idx, data_idx in enumerate(indices):
-        best_img, other_img, _ = dataset[data_idx]
-        group_images = torch.stack([best_img, other_img, other_img, other_img, other_img])
-        with torch.no_grad():
-            scores = model(group_images.unsqueeze(0).to(CFG['device'])).cpu().numpy()[0]
-        
-        for i in range(5):
-            plt.subplot(num_examples, 5, plot_idx * 5 + i + 1)
-            img = group_images[i].permute(1, 2, 0).numpy()
-            img = img * np.array([0.33993446, 0.32239504, 0.31772373]) + np.array([0.53882785, 0.5202824, 0.51766375])
-            plt.imshow(np.clip(img, 0, 1))
-            plt.title(f"Score: {scores[i]:.2f}\n{'✅' if i == 0 else '❌'}")
-            plt.axis('off')
-    plt.tight_layout()
-    plt.savefig('predictions.png')
-    plt.close()
-
 def train():
     Path(CFG['retrain_dir']).mkdir(parents=True, exist_ok=True)
     
@@ -465,29 +443,7 @@ def train():
     
     torch.save(model.state_dict(), 'final_model.pth')
     
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(history['train_loss'], label='Потери на обучении')
-    plt.title('Потери на обучении')
-    plt.xlabel('Эпоха')
-    plt.ylabel('Потери')
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(history['val_ndcg'], label='Val NDCG')
-    plt.plot(history['val_top1'], label='Val Top-1')
-    plt.plot(history['swa_val_ndcg'], label='SWA Val NDCG', linestyle='--')
-    plt.plot(history['swa_val_top1'], label='SWA Val Top-1', linestyle='--')
-    plt.title('Метрики валидации')
-    plt.xlabel('Эпоха')
-    plt.ylabel('Оценка')
-    plt.legend()
-    
-    plt.tight_layout()
-    plt.savefig('training_metrics.png')
-    plt.close()
-    
     model.load_state_dict(torch.load('best_model.pth', map_location=CFG['device']))
-    visualize_predictions(model, val_ds)
 
 if __name__ == '__main__':
     train()

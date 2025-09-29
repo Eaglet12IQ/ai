@@ -302,3 +302,8 @@ metal_collar
 mini_person
 minigirl
 yd_dancer_outfit
+trait_connection
+absolute_cinema_(meme)
+uno_(game)
+greyscale_with_colored_background
+fujimoto_tatsuki_(style)
