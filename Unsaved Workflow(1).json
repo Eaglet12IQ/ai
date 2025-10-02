@@ -7,7 +7,7 @@
       "lora_name": "None",
       "lora_model_strength": 0.8,
       "lora_clip_strength": 0.8,
-      "positive": "furina \\(genshin impact\\), 1girl alternate costume, blue eyes, blue hair, closed mouth, dress, drop-shaped pupils, field, flower, flower field, frilled dress, frills, hat, heterochromia, long hair, mismatched pupils, multicolored hair, solo, straw hat, sun hat, symbol-shaped pupils, two-tone hair, upper body, white dress, white hair, (gogalking:0.8), (loika:0.15), (33 gaff:0.05), masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, detailed eyes",
+      "positive": "furina \\(genshin impact\\), 1girl, ahoge, asymmetrical gloves, black bra, black gloves, black panties, blue bow, blue eyes, blue gemstone, blue hair, blue hat, blue jacket, blue pupils, blue streaks, bow, bra, bright pupils, collarbone, colored inner hair, cowboy shot, curly hair, curtains, drooling, finger to mouth, finger to tongue, floating curtains, garter belt, gem, gloves, hair between eyes, half gloves, hat, hat bow, heterochromia, huge ahoge, indoors, jacket, lace, lace bra, lace panties, light blush, lingerie, long eyelashes, long sleeves, looking at viewer, mismatched gloves, mismatched pupils, multicolored hair, on bed, open clothes, open jacket, open mouth, panties, saliva, short hair, single bare shoulder, single off shoulder, solo, straddling, strap slip, streaked hair, thigh strap, tongue, tongue out, top hat, two-tone hair, underwear, underwear only, white gloves, (gogalking:0.8), (loika:0.15), (33 gaff:0.05), masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, detailed eyes",
       "negative": "steam, lowres, worst quality, bad quality, bad anatomy, sketch, jpeg artifacts, signature, watermark, old, oldest, censored, bar censor, pregnant, chibi, loli, simple background, conjoined, sweat, wet, bad hands, speech bubble, realistic, 3d, tears, onee-shota, shota, flat chest, heart-shaped pupils",
       "token_normalization": "none",
       "weight_interpretation": "comfy",
@@ -96,7 +96,7 @@
   },
   "589": {
     "inputs": {
-      "seed": 987184986156118,
+      "seed": 340956996001219,
       "steps": 30,
       "cfg": 4,
       "sampler_name": "euler_ancestral",
@@ -158,7 +158,7 @@
       "guide_size": 1024,
       "guide_size_for": true,
       "max_size": 1024,
-      "seed": 672484331837355,
+      "seed": 102448797746127,
       "steps": 30,
       "cfg": 3,
       "sampler_name": "euler_ancestral",
@@ -184,11 +184,11 @@
       "tiled_encode": false,
       "tiled_decode": false,
       "image": [
-        "589",
-        5
+        "632",
+        0
       ],
       "model": [
-        "589",
+        "110",
         0
       ],
       "clip": [
@@ -226,6 +226,106 @@
     }
   },
   "625": {
+    "inputs": {
+      "model_name": "segm/face_yolov8n-seg2_60.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "UltralyticsDetectorProvider"
+    }
+  },
+  "630": {
+    "inputs": {
+      "model_name": "bbox/Eyes.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "UltralyticsDetectorProvider"
+    }
+  },
+  "631": {
+    "inputs": {
+      "model_name": "sam_vit_b_01ec64.pth",
+      "device_mode": "AUTO"
+    },
+    "class_type": "SAMLoader",
+    "_meta": {
+      "title": "SAMLoader (Impact)"
+    }
+  },
+  "632": {
+    "inputs": {
+      "guide_size": 1024,
+      "guide_size_for": true,
+      "max_size": 1024,
+      "seed": 407655707187183,
+      "steps": 30,
+      "cfg": 3,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "denoise": 0.3,
+      "feather": 5,
+      "noise_mask": true,
+      "force_inpaint": true,
+      "bbox_threshold": 0.6,
+      "bbox_dilation": 30,
+      "bbox_crop_factor": 5,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7000000000000001,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 10,
+      "wildcard": "",
+      "cycle": 1,
+      "inpaint_model": false,
+      "noise_mask_feather": 20,
+      "tiled_encode": false,
+      "tiled_decode": false,
+      "image": [
+        "589",
+        5
+      ],
+      "model": [
+        "110",
+        0
+      ],
+      "clip": [
+        "110",
+        5
+      ],
+      "vae": [
+        "110",
+        4
+      ],
+      "positive": [
+        "110",
+        1
+      ],
+      "negative": [
+        "110",
+        2
+      ],
+      "bbox_detector": [
+        "630",
+        0
+      ],
+      "sam_model_opt": [
+        "631",
+        0
+      ],
+      "segm_detector_opt": [
+        "633",
+        1
+      ]
+    },
+    "class_type": "FaceDetailer",
+    "_meta": {
+      "title": "FaceDetailer"
+    }
+  },
+  "633": {
     "inputs": {
       "model_name": "segm/face_yolov8n-seg2_60.pt"
     },
