@@ -1,7 +1,7 @@
 input
 dataset
-danbooru_resnet50.pth
-datasetgotov.rar
 __pycache__
 confidence_ratios.txt
 7293 4592 best.pth
+7139 3945 6514.pth
+resnet50danbooru.pth

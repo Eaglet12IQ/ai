@@ -80,21 +80,21 @@ train_transform = A.Compose([
         num_holes_range=(1, 3),
         hole_height_range=(0.03, 0.07),
         hole_width_range=(0.03, 0.07),
-        fill=(0.53882785*255, 0.5202824*255, 0.51766375*255),
+        fill=(0.54398818*255, 0.52586353*255, 0.52226893*255),
         p=0.3
     ),
     A.RandomRotate90(p=0.5),
     A.HorizontalFlip(p=0.5),
     A.RandomGamma(gamma_limit=(90, 110), p=0.2),
     A.GaussianBlur(blur_limit=(3, 3), p=0.1),
-    A.Normalize(mean=[0.53882785, 0.5202824, 0.51766375], std=[0.33993446, 0.32239504, 0.31772373]),
+    A.Normalize(mean=[0.54398818, 0.52586353, 0.52226893], std=[0.328297, 0.31159157, 0.30748192]),
     ToTensorV2()
 ], seed=seed)
 
 val_transform = A.Compose([
     A.LongestMaxSize(CFG['img_size']),
     A.PadIfNeeded(CFG['img_size'], CFG['img_size'], border_mode=0),
-    A.Normalize(mean=[0.53882785, 0.5202824, 0.51766375], std=[0.33993446, 0.32239504, 0.31772373]),
+    A.Normalize(mean=[0.54398818, 0.52586353, 0.52226893], std=[0.328297, 0.31159157, 0.30748192]),
     ToTensorV2()
 ], seed=seed)
 
@@ -158,8 +158,17 @@ class AnimeGroupDataset(Dataset):
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = torch.hub.load('RF5/danbooru-pretrained', 'resnet50', pretrained=True)
-        self.backbone[1] = nn.Sequential(
+        from danbooru_resnet import resnet50 as danbooru_resnet50
+
+        weights_path = os.path.join(BASE_DIR, "resnet50danbooru.pth")
+
+        self.backbone = danbooru_resnet50(pretrained=False, top_n=6000)
+
+        state_dict = torch.load(weights_path, map_location=CFG['device'])
+        self.backbone.load_state_dict(state_dict)
+
+        self.backbone = nn.Sequential(
+            self.backbone[0],  # body (до head)
             self.backbone[1][0],  # AdaptiveConcatPool2d
             self.backbone[1][1]   # Flatten
         )

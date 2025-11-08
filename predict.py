@@ -31,11 +31,22 @@ val_transform = A.Compose([
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = torch.hub.load('RF5/danbooru-pretrained', 'resnet50', pretrained=True)
-        self.backbone[1] = nn.Sequential(
+
+        from danbooru_resnet import resnet50 as danbooru_resnet50
+
+        weights_path = os.path.join(BASE_DIR, "resnet50danbooru.pth")
+
+        self.backbone = danbooru_resnet50(pretrained=False, top_n=6000)
+
+        state_dict = torch.load(weights_path, map_location=CFG['device'])
+        self.backbone.load_state_dict(state_dict)
+
+        self.backbone = nn.Sequential(
+            self.backbone[0],  # body (до head)
             self.backbone[1][0],  # AdaptiveConcatPool2d
             self.backbone[1][1]   # Flatten
         )
+
         feature_size = 4096  # Размерность признаков для текущего backbone
         
         self.rank_head = nn.Sequential(

@@ -105,7 +105,7 @@ def retrain():
         # Валидация
         val_metrics = evaluate(model, val_loader, CFG['device'])
         print(f"\n📊 Эпоха {epoch+1} | Средний loss={avg_loss:.4f} | "
-              f"Val NDCG={val_metrics['ndcg']:.4f}, Top-1={val_metrics['top1']:.4f}\n")
+              f"Val NDCG={val_metrics['ndcg']:.4f}, Top-1={val_metrics['top1']:.4f}, Top-2={val_metrics['top2']:.4f}\n")
 
         # SWA
         if epoch >= CFG['swa_start']:
