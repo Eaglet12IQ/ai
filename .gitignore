@@ -2,6 +2,5 @@ input
 dataset
 __pycache__
 confidence_ratios.txt
-7293 4592 best.pth
-7139 3945 6514.pth
+7186 4182 6364 best.pth
 resnet50danbooru.pth

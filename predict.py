@@ -24,7 +24,7 @@ CFG = {
 val_transform = A.Compose([
     A.LongestMaxSize(CFG['img_size']),
     A.PadIfNeeded(CFG['img_size'], CFG['img_size'], border_mode=0),
-    A.Normalize(mean=[0.53882785, 0.5202824, 0.51766375], std=[0.33993446, 0.32239504, 0.31772373]),
+    A.Normalize(mean=[0.54334275, 0.52534667, 0.52161565], std=[0.32822825, 0.31149102, 0.3073702]),
     ToTensorV2()
 ])
 
@@ -425,7 +425,7 @@ def select_best_4level_flat(
 
 if __name__ == '__main__':
     input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output\dataset"
-    model_path = "7293 4592 best.pth"
+    model_path = "7186 4182 6364 best.pth"
     output_dir = r"D:\finish"
     copy_from_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output"
 

@@ -139,7 +139,7 @@ used_tags = set()
 
 count = 3
 search_type = "character"
-tags = [["kirigaya_suguha", "character"], ["yuuki_(sao)", "character"], ["krista_lenz", "character"]]
+tags = [["rosaria_(genshin_impact)", "character"], ["yor_briar", "character"], ["d.va_(overwatch)", "character"]]
 rating = "all"
 
 for i in range(0, count):
@@ -222,7 +222,7 @@ for i in range(0, count):
         
         if len(png_files) >= expected_count:
             input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output\dataset"
-            model_path = "7293 4592 best.pth"
+            model_path = "7186 4182 6364 best.pth"
             output_dir = r"D:\finish"
 
             select_best_4level_flat(
