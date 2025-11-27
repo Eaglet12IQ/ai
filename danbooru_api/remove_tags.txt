@@ -405,3 +405,14 @@ copyright_logo
 drawing_(object)
 comic_sans
 cuffed
+x-ray
+guess_who
+comic_cover
+western_comics_(style)
+photo_inset
+cropped_shoulders
+livestream
+sailor_moon_redraw_challenge_(meme)
+agemasen!_(meme)
+cyrillic
+commissioner_name

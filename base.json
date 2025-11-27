@@ -7,7 +7,7 @@
       "lora_name": "None",
       "lora_model_strength": 0.8,
       "lora_clip_strength": 0.8,
-      "positive": "furina \\(genshin impact\\), 1girl, ahoge, asymmetrical gloves, black bra, black gloves, black panties, blue bow, blue eyes, blue gemstone, blue hair, blue hat, blue jacket, blue pupils, blue streaks, bow, bra, bright pupils, collarbone, colored inner hair, cowboy shot, curly hair, curtains, drooling, finger to mouth, finger to tongue, floating curtains, garter belt, gem, gloves, hair between eyes, half gloves, hat, hat bow, heterochromia, huge ahoge, indoors, jacket, lace, lace bra, lace panties, light blush, lingerie, long eyelashes, long sleeves, looking at viewer, mismatched gloves, mismatched pupils, multicolored hair, on bed, open clothes, open jacket, open mouth, panties, saliva, short hair, single bare shoulder, single off shoulder, solo, straddling, strap slip, streaked hair, thigh strap, tongue, tongue out, top hat, two-tone hair, underwear, underwear only, white gloves, (gogalking:0.8), (loika:0.15), (33 gaff:0.05), masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, detailed eyes",
+      "positive": "sailor moon, 1girl, black hair, blue sailor collar, bow, bowtie, choker, cigarette, circlet, cosplay, earrings, jewelry, long hair, looking afar, magical girl, parted bangs, parted lips, red bow, red bowtie, sailor collar, sailor moon \\(cosplay\\), sailor senshi uniform, shirt, smoke, smoking, solo, teeth, tile floor, tiles, twintails, upper body, upper teeth only, white shirt, (gogalking:0.8), (loika:0.15), (33 gaff:0.05), masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, detailed eyes",
       "negative": "steam, lowres, worst quality, bad quality, bad anatomy, sketch, jpeg artifacts, signature, watermark, old, oldest, censored, bar censor, pregnant, chibi, loli, simple background, conjoined, sweat, wet, bad hands, speech bubble, realistic, 3d, tears, onee-shota, shota, flat chest, heart-shaped pupils",
       "token_normalization": "none",
       "weight_interpretation": "comfy",
@@ -26,7 +26,7 @@
     },
     "class_type": "UpscaleModelLoader",
     "_meta": {
-      "title": "Load Upscale Model"
+      "title": "Загрузить модель апскейла"
     }
   },
   "125": {
@@ -42,7 +42,7 @@
     },
     "class_type": "ImageUpscaleWithModel",
     "_meta": {
-      "title": "Upscale Image (using Model)"
+      "title": "Апскейл изображения (с использованием модели)"
     }
   },
   "126": {
@@ -55,7 +55,7 @@
     },
     "class_type": "SaveImage",
     "_meta": {
-      "title": "Save Image"
+      "title": "Сохранить изображение"
     }
   },
   "574": {
@@ -70,10 +70,10 @@
       "hires_steps": 10,
       "denoise": 0.4,
       "iterations": 1,
-      "use_controlnet": false,
+      "use_controlnet": "_",
       "control_net_name": "SDXL\\control-lora-canny-rank256.safetensors",
-      "strength": 1,
-      "preprocessor": "none",
+      "strength": 0,
+      "preprocessor": "_",
       "preprocessor_imgs": false
     },
     "class_type": "HighRes-Fix Script",
@@ -91,21 +91,21 @@
     },
     "class_type": "SaveImage",
     "_meta": {
-      "title": "Save Image"
+      "title": "Сохранить изображение"
     }
   },
   "589": {
     "inputs": {
-      "seed": 340956996001219,
+      "seed": 655175400126839,
       "steps": 30,
       "cfg": 4,
-      "sampler_name": "euler_ancestral",
+      "sampler_name": "bleh_preset_0",
       "scheduler": "normal",
       "denoise": 1,
       "preview_method": "auto",
       "vae_decode": "true",
       "model": [
-        "110",
+        "638",
         0
       ],
       "positive": [
@@ -158,7 +158,7 @@
       "guide_size": 1024,
       "guide_size_for": true,
       "max_size": 1024,
-      "seed": 102448797746127,
+      "seed": 346101054246853,
       "steps": 30,
       "cfg": 3,
       "sampler_name": "euler_ancestral",
@@ -258,7 +258,7 @@
       "guide_size": 1024,
       "guide_size_for": true,
       "max_size": 1024,
-      "seed": 407655707187183,
+      "seed": 1048645743580257,
       "steps": 30,
       "cfg": 3,
       "sampler_name": "euler_ancestral",
@@ -332,6 +332,77 @@
     "class_type": "UltralyticsDetectorProvider",
     "_meta": {
       "title": "UltralyticsDetectorProvider"
+    }
+  },
+  "638": {
+    "inputs": {
+      "preset": 0,
+      "discard_penultimate_sigma": false,
+      "sampler": [
+        "643",
+        0
+      ],
+      "any_input": [
+        "110",
+        0
+      ]
+    },
+    "class_type": "BlehSetSamplerPreset",
+    "_meta": {
+      "title": "BlehSetSamplerPreset"
+    }
+  },
+  "640": {
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "642": {
+    "inputs": {
+      "detail_amount": 0.1,
+      "start": 0.15,
+      "end": 0.25,
+      "bias": 0.5,
+      "exponent": 1,
+      "start_offset": 0,
+      "end_offset": 0,
+      "fade": 0,
+      "smooth": true,
+      "cfg_scale_override": 0,
+      "sampler": [
+        "640",
+        0
+      ]
+    },
+    "class_type": "DetailDaemonSamplerNode",
+    "_meta": {
+      "title": "Detail Daemon Sampler"
+    }
+  },
+  "643": {
+    "inputs": {
+      "detail_amount": 0.35,
+      "start": 0.3,
+      "end": 0.7,
+      "bias": 0.5,
+      "exponent": 1,
+      "start_offset": 0,
+      "end_offset": 0,
+      "fade": 0,
+      "smooth": true,
+      "cfg_scale_override": 0,
+      "sampler": [
+        "642",
+        0
+      ]
+    },
+    "class_type": "DetailDaemonSamplerNode",
+    "_meta": {
+      "title": "Detail Daemon Sampler"
     }
   }
 }

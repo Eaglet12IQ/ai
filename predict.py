@@ -274,7 +274,6 @@ def select_best_4level_flat(
     
     saved_images_set = set()
 
-    final_results = []
     batches = [all_pngs[i:i+batch_size] for i in range(0, len(all_pngs), batch_size)]
 
     processed_files = set()  # множество для хранения всех обработанных файлов
@@ -381,12 +380,16 @@ def select_best_4level_flat(
             continue
 
         final_best = level3_best[0]
-        final_results.append(final_best)
 
         src_final = os.path.join(copy_from_dir, final_best)
         dst_final = os.path.join(batch_folder, final_best)
         if os.path.exists(src_final):
             shutil.copy2(src_final, dst_final)
+
+        src_final_low = os.path.join(input_dir, final_best)
+        dst_final_low = os.path.join(batch_folder, final_best.replace(".png", "_low.png"))
+        if os.path.exists(src_final_low):
+            shutil.copy2(src_final_low, dst_final_low)
 
         if description:
             desc_path = os.path.join(batch_folder, "description.txt")
@@ -421,7 +424,7 @@ def select_best_4level_flat(
             except FileNotFoundError:
                 pass
 
-    return final_results
+    return dst_final_low
 
 if __name__ == '__main__':
     input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output\dataset"

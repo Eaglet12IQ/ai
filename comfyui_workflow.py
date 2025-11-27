@@ -8,6 +8,20 @@ import time
 from predict import select_best_4level_flat
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from vlm import generate_animation_prompt
+import shutil
+
+def wait_until_finished(path):
+    last_size = -1
+    while True:
+        try:
+            size = os.path.getsize(path)
+            if size == last_size:
+                return
+            last_size = size
+        except:
+            pass
+        time.sleep(1)
 
 def load_proxies_from_url(url):
     try:
@@ -137,10 +151,10 @@ except FileNotFoundError:
 
 used_tags = set()
 
-count = 3
+count = 1
 search_type = "character"
-tags = [["rosaria_(genshin_impact)", "character"], ["yor_briar", "character"], ["d.va_(overwatch)", "character"]]
-rating = "all"
+tags = [["wonder_woman", "character"]]
+rating = "general"
 
 for i in range(0, count):
     if isinstance(tags, list):
@@ -170,11 +184,11 @@ for i in range(0, count):
 
     API_URL = "http://127.0.0.1:8188/prompt"
 
-    copy_from_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output"
+    copy_from_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUILast\output"
     expected_count = 125
     check_interval = 60
 
-    workflow_file = "Unsaved Workflow(1).json"
+    workflow_file = "base.json"
 
     with open(workflow_file, "r") as f:
         workflow = json.load(f)
@@ -217,15 +231,17 @@ for i in range(0, count):
 
             time.sleep(10)
 
+    urls_for_anim = []
+
     while True:
         png_files = [f for f in os.listdir(copy_from_dir) if os.path.isfile(os.path.join(copy_from_dir, f)) and f.lower().endswith('.png')]
         
         if len(png_files) >= expected_count:
-            input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUI\output\dataset"
+            input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUILast\output\dataset"
             model_path = "7186 4182 6364 best.pth"
             output_dir = r"D:\finish"
 
-            select_best_4level_flat(
+            urls_for_anim.append(select_best_4level_flat(
                 model_path=model_path,
                 input_dir=input_dir,
                 group_size=5,
@@ -234,9 +250,68 @@ for i in range(0, count):
                 output_dir=output_dir,
                 copy_from_dir=copy_from_dir,
                 description=description
-            )
+            ))
             break
         
         time.sleep(check_interval)
+
+    for url in urls_for_anim:
+        prompt = generate_animation_prompt(url)
+
+        workflow_file = "ez.json"
+
+        with open(workflow_file, "r") as f:
+            workflow = json.load(f)
+
+        workflow["17"]["inputs"]["image"] = url
+
+        random_seed = random.getrandbits(64)
+        workflow["13"]["inputs"]["noise_seed"] = random_seed
+
+        workflow["15"]["inputs"]["text"] = prompt
+
+        data = {
+            "client_id": 1,
+            "prompt": workflow
+        }
+
+        response = requests.post(API_URL, json=data)
+
+        found_gif = None
+
+        while True:
+            for root, dirs, files in os.walk(copy_from_dir):
+                for file in files:
+                    if file.lower().endswith(".gif"):
+                        found_gif = os.path.join(root, file)
+                        break
+                if found_gif:
+                    break
+
+            if found_gif:
+                break
+
+            time.sleep(10)
+        
+        target_dir = os.path.dirname(url)
+        gif_target_path = os.path.join(target_dir, os.path.basename(found_gif))
+
+        wait_until_finished(found_gif)
+        shutil.move(found_gif, gif_target_path)
+
+        if os.path.exists(url):
+            os.remove(url)
+
+        txt_path = os.path.splitext(url)[0] + ".txt"
+        with open(txt_path, "w", encoding="utf-8") as txt_file:
+            txt_file.write(prompt)
+
+        for root, dirs, files in os.walk(copy_from_dir):
+            for file in files:
+                if file.lower().endswith((".gif", ".png")):
+                    try:
+                        os.remove(os.path.join(root, file))
+                    except:
+                        pass
 
 os.system("shutdown /s /t 60")

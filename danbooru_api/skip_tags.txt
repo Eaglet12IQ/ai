@@ -192,3 +192,5 @@ skinsuit
 baby
 carrying_baby
 aged_down
+phallic_symbol
+after_sex
