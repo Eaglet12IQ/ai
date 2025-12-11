@@ -10,6 +10,104 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from vlm import generate_animation_prompt
 import shutil
+import tempfile
+import subprocess
+from PIL import Image
+
+def get_gif_color_count(path):
+    """Определение количества уникальных цветов в первом кадре GIF."""
+    img = Image.open(path)
+    img = img.convert("RGB")
+    colors = img.getcolors(maxcolors=3000000)
+    if colors is None:
+        return 256
+    return len(colors)
+
+def create_compressed_gif(input_path, max_size_mb=15):
+    max_bytes = max_size_mb * 1024 * 1024
+
+    base, ext = os.path.splitext(input_path)
+    output_path = base + "_compressed" + ext
+
+    temp_dir = tempfile.mkdtemp()
+    temp_path = os.path.join(temp_dir, "compressed.gif")
+
+    # Определяем максимальное количество цветов
+    original_color_count = get_gif_color_count(input_path)
+    print(f"[INFO] Colors in GIF: {original_color_count}")
+
+    # 1. Если уже меньше лимита → просто копируем
+    if os.path.getsize(input_path) <= max_bytes:
+        shutil.copy(input_path, output_path)
+        shutil.rmtree(temp_dir)
+        return output_path
+
+    # 2. Оптимизация без потерь O1-O3
+    for level in [1, 2, 3]:
+        subprocess.run([
+            r"C:\ProgramData\chocolatey\bin\gifsicle.exe",
+            f"-O{level}",
+            "--colors", str(original_color_count),
+            input_path,
+            "-o", temp_path
+        ])
+        if os.path.exists(temp_path) and os.path.getsize(temp_path) <= max_bytes:
+            shutil.move(temp_path, output_path)
+            shutil.rmtree(temp_dir)
+            return output_path
+
+    # 3. Плавное уменьшение количества цветов от исходного
+    color_steps = [
+        int(original_color_count * 0.9),
+        int(original_color_count * 0.75),
+        int(original_color_count * 0.6),
+        int(original_color_count * 0.5),
+        int(original_color_count * 0.4),
+        int(original_color_count * 0.33),
+        128, 100, 80, 64, 48, 32
+    ]
+
+    # Убираем повторяющиеся / нулевые / слишком высокие значения
+    color_steps = sorted({c for c in color_steps if 1 < c <= original_color_count}, reverse=True)
+
+    for colors in color_steps:
+        subprocess.run([
+            r"C:\ProgramData\chocolatey\bin\gifsicle.exe",
+            "-O3",
+            "--colors", str(colors),
+            input_path,
+            "-o", temp_path
+        ])
+        if os.path.getsize(temp_path) <= max_bytes:
+            shutil.move(temp_path, output_path)
+            shutil.rmtree(temp_dir)
+            return output_path
+
+    # 4. В крайнем случае — немного lossy
+    subprocess.run([
+        r"C:\ProgramData\chocolatey\bin\gifsicle.exe",
+        "-O3",
+        "--lossy=20",
+        "--delay=4",
+        input_path,
+        "-o", temp_path
+    ])
+
+    shutil.move(temp_path, output_path)
+    shutil.rmtree(temp_dir)
+    return output_path
+
+def safe_move(src, dst, retries=20, delay=1):
+    """Перемещает файл, ожидая пока он разблокируется."""
+    for attempt in range(retries):
+        try:
+            shutil.move(src, dst)
+            return True
+        except PermissionError:
+            print(f"[INFO] Файл занят, повтор попытки {attempt + 1}/{retries}...")
+            time.sleep(delay)
+    print("[ERROR] Не удалось переместить файл — он постоянно занят!")
+    return False
 
 def wait_until_finished(path):
     last_size = -1
@@ -151,9 +249,9 @@ except FileNotFoundError:
 
 used_tags = set()
 
-count = 1
+count = 3
 search_type = "character"
-tags = [["wonder_woman", "character"]]
+tags = [["ningguang_(genshin_impact)", "character"], ["raiden_shogun", "character"], ["saber_(fate)", "character"]]
 rating = "general"
 
 for i in range(0, count):
@@ -184,7 +282,7 @@ for i in range(0, count):
 
     API_URL = "http://127.0.0.1:8188/prompt"
 
-    copy_from_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUILast\output"
+    copy_from_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUIfix\output"
     expected_count = 125
     check_interval = 60
 
@@ -237,7 +335,7 @@ for i in range(0, count):
         png_files = [f for f in os.listdir(copy_from_dir) if os.path.isfile(os.path.join(copy_from_dir, f)) and f.lower().endswith('.png')]
         
         if len(png_files) >= expected_count:
-            input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUILast\output\dataset"
+            input_dir = r"D:\StabilityMatrix\Data\Packages\ComfyUIfix\output\dataset"
             model_path = "7186 4182 6364 best.pth"
             output_dir = r"D:\finish"
 
@@ -297,7 +395,7 @@ for i in range(0, count):
         gif_target_path = os.path.join(target_dir, os.path.basename(found_gif))
 
         wait_until_finished(found_gif)
-        shutil.move(found_gif, gif_target_path)
+        safe_move(found_gif, gif_target_path)
 
         if os.path.exists(url):
             os.remove(url)
@@ -313,5 +411,7 @@ for i in range(0, count):
                         os.remove(os.path.join(root, file))
                     except:
                         pass
+
+        create_compressed_gif(gif_target_path, 15)
 
 os.system("shutdown /s /t 60")

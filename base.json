@@ -385,7 +385,7 @@
   },
   "643": {
     "inputs": {
-      "detail_amount": 0.35,
+      "detail_amount": 0.3,
       "start": 0.3,
       "end": 0.7,
       "bias": 0.5,

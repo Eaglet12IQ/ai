@@ -1,7 +1,7 @@
 {
   "1": {
     "inputs": {
-      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "clip_name": "umt5_xxl_fp16.safetensors",
       "type": "wan",
       "device": "cpu"
     },
@@ -14,7 +14,7 @@
     "inputs": {
       "shift": 8,
       "model": [
-        "12",
+        "56",
         0
       ]
     },
@@ -27,7 +27,7 @@
     "inputs": {
       "shift": 8,
       "model": [
-        "11",
+        "57",
         0
       ]
     },
@@ -61,7 +61,7 @@
   "11": {
     "inputs": {
       "lora_name": "Wan2.2-Lightning_I2V-A14B-4steps-lora_HIGH_fp16.safetensors",
-      "strength_model": 1.0000000000000002,
+      "strength_model": 1,
       "model": [
         "19",
         0
@@ -89,7 +89,7 @@
   "13": {
     "inputs": {
       "add_noise": "enable",
-      "noise_seed": 262193214412961,
+      "noise_seed": 344944008717251,
       "steps": 4,
       "cfg": 1,
       "sampler_name": "euler",
@@ -154,7 +154,7 @@
   },
   "15": {
     "inputs": {
-      "text": "A young woman stands before an ornate mirror reflecting her own bloodied form. She holds a sword behind her back, its blade etched with intricate designs. Her hair is tied high on her head, revealing a tattoo of a dragon coiling down her spine. With one hand she gently touches her face, leaving streaks of red beneath her fingers. In front of her rests another bloody weapon, surrounded by scattered tools and paint brushes, suggesting recent artistic endeavor turned violent. As she moves, light flickers across her skin like fireflies dancing through the night sky, casting long shadows and highlighting every detail of this haunting scene.",
+      "text": "Hair strands at the ends of the twintails sway with a gentle, rhythmic pulse while the red ornaments catch fleeting glimpses of light. Red eyes blink intermittently, lashes lifting and lowering in sync with micro-expressions. The edge of the blue jacket flutters softly as raindrops cling to its surface before sliding down. Cigarette smoke curls upward in thin, wispy trails, dispersing into the humid air. A few stray raindrops shimmer briefly near the lips before splashing onto the chin. Faint ripples distort the reflection of streetlights in puddles beneath the feet. The cigarette ember pulses with a steady, low-frequency \nglow, casting brief highlights across the jawline. Background haze swirls lazily between skyscrapers, blurring the outlines of distant windows. Rigid structures like the metal framework of the cigarette holder, the gold brooch fastened to the collar, and the solid form of the cityscape remain locked in place. The blue collar stays taut, the red bow retains its shape, and the torso does not shift beyond natural breath-related tension. Puddles and pavement textures show no movement beyond the gradual accumulation of rainwater.",
       "clip": [
         "1",
         0
@@ -167,7 +167,7 @@
   },
   "17": {
     "inputs": {
-      "image": "ComfyUI_00041_.png"
+      "image": "ComfyUI_00001_.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -261,6 +261,34 @@
     "class_type": "VAEDecode",
     "_meta": {
       "title": "Декодировать VAE"
+    }
+  },
+  "56": {
+    "inputs": {
+      "lora_name": "livewallpaper_wan22_14b_i2v_low_model_0_1_e26.safetensors",
+      "strength_model": 1,
+      "model": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LOW LORA 2"
+    }
+  },
+  "57": {
+    "inputs": {
+      "lora_name": "livewallpaper_wan22_14b_i2v_low_model_0_1_e26.safetensors",
+      "strength_model": 1,
+      "model": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LOW LORA 2"
     }
   }
 }

@@ -61,8 +61,8 @@ def retrain():
     print("✅ Загружена модель best_model.pth")
 
     # --- уменьшенные learning rates для retrain ---
-    retrain_head_lr = CFG['head_lr'] * 0.2       # в 5 раз меньше
-    retrain_backbone_lr = CFG['backbone_lr'] * 0.5  # в 2 раза меньше
+    retrain_head_lr = CFG['head_lr'] * 0.02       # в 5 раз меньше
+    retrain_backbone_lr = CFG['backbone_lr'] * 0.05  # в 2 раза меньше
 
     optimizer = torch.optim.AdamW([
         {'params': model.backbone.parameters(), 'lr': retrain_backbone_lr},
