@@ -194,3 +194,5 @@ carrying_baby
 aged_down
 phallic_symbol
 after_sex
+multiple_persona
+disembodied_head

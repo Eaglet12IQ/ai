@@ -251,7 +251,7 @@ used_tags = set()
 
 count = 3
 search_type = "character"
-tags = [["ningguang_(genshin_impact)", "character"], ["raiden_shogun", "character"], ["saber_(fate)", "character"]]
+tags = [["kanroji_mitsuri", "character"], ["mirko", "character"], ["jingliu_(honkai:_star_rail)", "character"]]
 rating = "general"
 
 for i in range(0, count):
@@ -376,12 +376,20 @@ for i in range(0, count):
         response = requests.post(API_URL, json=data)
 
         found_gif = None
+        target_name = os.path.basename(url)  # Имя исходной PNG, например "0001.png"
+        gif_base_name = os.path.splitext(target_name.replace("__low", ""))[0] + "_anim.gif"
 
         while True:
             for root, dirs, files in os.walk(copy_from_dir):
                 for file in files:
                     if file.lower().endswith(".gif"):
                         found_gif = os.path.join(root, file)
+                        # Переименовываем сразу на нужное имя с _anim
+                        target_dir = os.path.dirname(url)
+                        target_gif_path = os.path.join(target_dir, gif_base_name)
+                        wait_until_finished(found_gif)
+                        safe_move(found_gif, target_gif_path)
+                        found_gif = target_gif_path  # Обновляем путь
                         break
                 if found_gif:
                     break
@@ -390,17 +398,38 @@ for i in range(0, count):
                 break
 
             time.sleep(10)
-        
-        target_dir = os.path.dirname(url)
-        gif_target_path = os.path.join(target_dir, os.path.basename(found_gif))
-
-        wait_until_finished(found_gif)
-        safe_move(found_gif, gif_target_path)
 
         if os.path.exists(url):
             os.remove(url)
 
-        txt_path = os.path.splitext(url)[0] + ".txt"
+        if found_gif:
+            # === НОВАЯ ФУНКЦИЯ: Добавляем НЕСЖАТУЮ GIF в существующий архив ===
+            gif_dir = os.path.dirname(found_gif)
+            gif_filename = os.path.basename(found_gif)
+
+            # Ищем единственный архив в той же папке (поддерживаем .zip, .7z, .rar)
+            archive_path = None
+            for ext in ['.zip']:
+                archives = [f for f in os.listdir(gif_dir) if f.lower().endswith(ext)]
+                if len(archives) == 1:
+                    archive_path = os.path.join(gif_dir, archives[0])
+                    break
+                elif len(archives) > 1:
+                    print(f"[WARNING] Найдено несколько архивов в папке {gif_dir}, пропускаем добавление в архив.")
+                    break
+
+            if archive_path:
+                try:
+                    if archive_path.lower().endswith('.zip'):
+                        import zipfile
+                        with zipfile.ZipFile(archive_path, 'a') as zipf:
+                            zipf.write(found_gif, gif_filename)  # Добавляем с тем же именем
+                except Exception as e:
+                    print(f"[ERROR] Не удалось добавить GIF в архив: {e}")
+            else:
+                print(f"[INFO] Архив не найден в папке {gif_dir} (или их несколько) — пропускаем добавление.")
+
+        txt_path = os.path.splitext(found_gif)[0] + ".txt"
         with open(txt_path, "w", encoding="utf-8") as txt_file:
             txt_file.write(prompt)
 
@@ -412,6 +441,6 @@ for i in range(0, count):
                     except:
                         pass
 
-        create_compressed_gif(gif_target_path, 15)
+        create_compressed_gif(found_gif, 15)
 
 os.system("shutdown /s /t 60")

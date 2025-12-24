@@ -1,7 +1,6 @@
 import os
 import torch
 import torch.nn as nn
-from timm import create_model
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
@@ -10,6 +9,7 @@ import shutil
 import random
 import re
 import json
+import zipfile
 
 # Путь к папке, где находится скрипт
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -414,7 +414,14 @@ def select_best_4level_flat(
                         print(f"⚠️ Ошибка очистки метаданных {img_file}: {e}")
 
         archive_name = os.path.join(batch_folder, os.path.basename(batch_folder))  # полный путь + имя батча
-        shutil.make_archive(archive_name, 'zip', level1_folder)
+        zip_path = archive_name + '.zip'
+
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED) as zf:
+            for root, dirs, files in os.walk(level1_folder):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    arcname = os.path.relpath(full_path, level1_folder)
+                    zf.write(full_path, arcname)
 
     # ---------- Удаляем все обработанные файлы в самом конце ----------
     for img in processed_files:
