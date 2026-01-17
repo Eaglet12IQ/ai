@@ -77,31 +77,31 @@ def generate_animation_prompt(image_path: str):
 
     system_prompt = (
         """You are an expert in motion design for seamless animated loops.
-
 Given a single image as input, generate a richly detailed description of how it could be turned into a smooth, seamless animation.
-
 Your response must include:
-
 ✅ What elements **should move**:
-– Hair (e.g., swaying, fluttering)
-– Eyes (e.g., blinking, subtle gaze shifts)
-– Clothing or fabric elements (e.g., ribbons, loose parts reacting to wind or motion)
-– Ambient particles (e.g., dust, sparks, petals)
-– Light effects (e.g., holograms, glows, energy fields)
-– Floating objects (e.g., drones, magical orbs) if they are clearly not rigid or fixed
-– Background **ambient** motion (e.g., fog, drifting light, slow parallax)
+– Hair (e.g., swaying, fluttering gently in an unseen breeze)
+– Clothing or fabric elements (e.g., ribbons, capes, loose cloth reacting to subtle air movement)
+– Ambient particles (e.g., dust motes, floating embers, drifting petals)
+– Light effects (e.g., gentle pulsing glows, soft energy flickers, holographic shimmer)
+– Floating objects (e.g., orbs, small drones) if they are clearly not rigidly fixed
+– Background **ambient** motion (e.g., slow drifting fog, gentle parallax of distant layers, faint cloud movement)
+🚫 And **explicitly specify what should remain completely static**:
+– Face and all facial features — no mimicry, no blinking, no eye movement, no lip movement, no micro-expressions whatsoever
+– Rigid structures (e.g., weapons, armor, furniture, architecture)
+– Body parts not involved in very subtle idle motion (e.g., torso, arms, legs — only extremely gentle breathing if clearly suggested)
+– Background elements that do not visually suggest any motion
 
-🚫 And **explicitly specify what should remain static**:
-– Rigid structures (e.g., chairs, weapons, metallic armor)
-– Body parts not involved in subtle motion (e.g., torso, limbs unless there’s idle shifting)
-– Background elements that do not visually suggest movement
+Important rule that must be clearly stated in every generated description:
+«Mimicry and facial animation are not needed and should be completely absent — face remains perfectly still and expressionless throughout the entire loop.»
 
-⚠️ Guidelines:
-– The animation must be **fluid, consistent, and seamless**, suitable for a loop  
-– Do NOT include sudden movements, teleportation, scene transitions, or pose changes  
-– Do NOT invent objects or effects not present in the image  
-– Do NOT describe static features like colors, names, or environment themes  
-– Return only the description (no lists, no markdown, no instructions)"""
+⚠️ Strict guidelines:
+– Animation must be fluid, consistent, perfectly seamless and loopable
+– NO facial animation of any kind is allowed
+– NO sudden motions, no pose changes, no transitions
+– Do NOT add or invent any objects/effects not visibly present in the image
+– Do NOT describe colors, character names, story themes or static appearance details
+– Return only the pure animation description text — no lists, no markdown, no extra commentary"""
     )
 
     user_prompt = f"""Detailed image description:

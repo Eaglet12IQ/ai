@@ -249,10 +249,10 @@ except FileNotFoundError:
 
 used_tags = set()
 
-count = 3
+count = 2
 search_type = "character"
-tags = [["kanroji_mitsuri", "character"], ["mirko", "character"], ["jingliu_(honkai:_star_rail)", "character"]]
-rating = "general"
+tags = [["xianyun_(genshin_impact)", "character"], ["tingyun_(honkai:_star_rail)", "character"]]
+rating = "sensitive"
 
 for i in range(0, count):
     if isinstance(tags, list):
@@ -278,7 +278,7 @@ for i in range(0, count):
         clean = part.replace('(', '').replace(')', '').replace(' ', '').replace(':', '')
         hashtags.append(f"#{clean}")
 
-    description = f"{user_tag_formatted}\n\nYou can also check out my Patreon, which includes all the sets, each containing 125 images.\n\n{' '.join(hashtags)}\n\nThe first buyer of this exclusive also receives an archive containing the full set of 125 images in the highest quality."
+    description = f"{user_tag_formatted}\n\n📌 125 Pics – link in Bio!\n\nSFW Illustration\n\n{' '.join(hashtags)}\n\nThe first buyer of this exclusive also receives an archive containing the full set of 125 images in the highest quality."
 
     API_URL = "http://127.0.0.1:8188/prompt"
 
