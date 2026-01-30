@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from new_top import (
     CFG, AnimeGroupDataset, train_transform, val_transform,
     my_collate_fn, worker_init_fn, EnhancedAnimeRanker,
-    PairwiseRankingLoss, evaluate
+    SoftFocalPairwiseLoss, evaluate
 )
 
 def load_splits():
@@ -72,7 +72,7 @@ def retrain():
     swa_model = AveragedModel(model)
     swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
-    criterion = PairwiseRankingLoss()
+    criterion = SoftFocalPairwiseLoss()
 
     best_ndcg = 0
     patience = 10

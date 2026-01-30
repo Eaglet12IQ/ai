@@ -202,15 +202,22 @@ class EnhancedAnimeRanker(nn.Module):
         scores = torch.stack([self.rank_head(features[i]) for i in range(batch_size)], dim=0)
         return scores.squeeze(-1)
 
-class PairwiseRankingLoss(nn.Module):
-    def __init__(self, epsilon=1e-6):
+class SoftFocalPairwiseLoss(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2.0, margin=0.9, temperature=0.7):
         super().__init__()
-        self.epsilon = epsilon
+        self.alpha = alpha
+        self.gamma = gamma
+        self.margin = margin
+        self.temperature = temperature
 
     def forward(self, scores_best, scores_other, target):
-        # target = 1, если best > other
-        diff = target * (scores_best - scores_other)
-        loss = torch.log1p(torch.exp(-diff))  # log(1 + exp(-diff))
+        diff = target * (scores_best - scores_other) / self.temperature
+        adjusted = self.margin - diff
+        
+        pt = torch.sigmoid(diff)                     # вероятность правильного порядка
+        focal_weight = (1 - pt).pow(self.gamma)
+        
+        loss = self.alpha * focal_weight * torch.log1p(torch.exp(adjusted))
         return loss.mean()
 
 def read_groups_from_txt(file_path):
@@ -332,7 +339,7 @@ def train():
     swa_model = AveragedModel(model)
     swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
-    criterion = PairwiseRankingLoss()
+    criterion = SoftFocalPairwiseLoss()
     scaler = GradScaler('cuda')
     
     best_ndcg = 0

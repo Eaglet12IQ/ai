@@ -249,10 +249,10 @@ except FileNotFoundError:
 
 used_tags = set()
 
-count = 2
+count = 3
 search_type = "character"
-tags = [["xianyun_(genshin_impact)", "character"], ["tingyun_(honkai:_star_rail)", "character"]]
-rating = "sensitive"
+tags = [["yaoyorozu_momo", "character"], ["hado_nejire", "character"], ["nami_(one_piece)", "character"]]
+rating = "general"
 
 for i in range(0, count):
     if isinstance(tags, list):
@@ -278,7 +278,7 @@ for i in range(0, count):
         clean = part.replace('(', '').replace(')', '').replace(' ', '').replace(':', '')
         hashtags.append(f"#{clean}")
 
-    description = f"{user_tag_formatted}\n\n📌 125 Pics – link in Bio!\n\nSFW Illustration\n\n{' '.join(hashtags)}\n\nThe first buyer of this exclusive also receives an archive containing the full set of 125 images in the highest quality."
+    description = f"{user_tag_formatted}\n\n📌 125 Pics – link in Bio!\n\n{' '.join(hashtags)}\n\nThe first buyer of this exclusive also receives an archive containing the full set of 125 images in the highest quality."
 
     API_URL = "http://127.0.0.1:8188/prompt"
 
@@ -442,5 +442,58 @@ for i in range(0, count):
                         pass
 
         create_compressed_gif(found_gif, 15)
+
+        # ────────────────────────────────────────────────
+        # Новый блок: поиск png в папке гифки и запуск SafeVision
+        # ────────────────────────────────────────────────
+
+        gif_dir = os.path.dirname(found_gif)          # папка, где лежит _anim.gif
+
+        # Ищем все .png файлы в этой папке
+        png_files = [f for f in os.listdir(gif_dir) if f.lower().endswith('.png')]
+
+        if len(png_files) == 0:
+            print(f"[WARNING] В папке {gif_dir} не найдено ни одного .png файла → пропускаем SafeVision")
+        elif len(png_files) > 1:
+            print(f"[WARNING] В папке {gif_dir} найдено несколько .png файлов ({len(png_files)}) → пропускаем автоматический запуск")
+        else:
+            # ровно один png → используем его
+            input_png = png_files[0]
+            input_png_path = os.path.join(gif_dir, input_png)
+
+            # Путь к выходной папке = та же папка, где лежит гифка
+            output_dir = gif_dir
+
+            # Формируем команду
+            safevision_script = r"D:\Python Scripts\SafeVision\main.py"
+            rule_path = r"D:\Python Scripts\SafeVision\BlurException.rule"
+
+            cmd = [
+                "python",
+                safevision_script,
+                "-i", input_png_path,
+                "-b",
+                "-o", output_dir,
+                "-e", rule_path
+            ]
+
+            print(f"[INFO] Запускаем SafeVision:")
+            print("      " + " ".join(cmd))
+
+            try:
+                import subprocess
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+                if result.returncode == 0:
+                    print("[OK] SafeVision завершился успешно")
+                    if result.stdout.strip():
+                        print("stdout:\n" + result.stdout)
+                else:
+                    print(f"[ERROR] SafeVision завершился с кодом {result.returncode}")
+                    if result.stderr.strip():
+                        print("stderr:\n" + result.stderr)
+
+            except Exception as e:
+                print(f"[EXCEPTION] Не удалось запустить SafeVision: {e}")
 
 os.system("shutdown /s /t 60")

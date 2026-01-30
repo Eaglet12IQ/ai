@@ -199,3 +199,5 @@ disembodied_head
 imminent_death
 deformed
 genderswap_(ftm)
+implied_injury
+age_comparison

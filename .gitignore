@@ -4,3 +4,5 @@ __pycache__
 confidence_ratios.txt
 7186 4182 6364 best.pth
 resnet50danbooru.pth
+llm/best_tag_transformer-2_7644.pth
+llm/unique_prompts.csv
