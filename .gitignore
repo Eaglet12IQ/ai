@@ -6,3 +6,4 @@ confidence_ratios.txt
 resnet50danbooru.pth
 llm/best_tag_transformer-2_7644.pth
 llm/unique_prompts.csv
+.vscode

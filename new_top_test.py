@@ -16,6 +16,7 @@ from tqdm import tqdm
 from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.amp import GradScaler
+import torch.nn.functional as F
 
 # Фиксация генераторов случайных чисел
 seed = 49
@@ -30,6 +31,15 @@ torch.backends.cudnn.benchmark = False
 plt.rcParams['font.family'] = 'Segoe UI Emoji'
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_grad_norm(parameters):
+    total_norm = 0.0
+    for p in parameters:
+        if p.grad is None:
+            continue
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm.item() ** 2
+    return total_norm ** 0.5
 
 def get_valid_groups(root_dir):
     valid_groups = []
@@ -69,10 +79,7 @@ CFG = {
     'swa_start': 80,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'retrain_dir': os.path.join(BASE_DIR, "dataset", "retrain"),
-    'dataset_path': os.path.join(BASE_DIR, "dataset"),
-    'lr_patience': 5,  # Количество эпох без улучшения перед снижением LR
-    'lr_factor': 0.5,  # Фактор уменьшения скорости обучения
-    'lr_threshold': 1e-4  # Минимальное улучшение метрики для предотвращения снижения LR
+    'dataset_path': os.path.join(BASE_DIR, "dataset")
 }
 
 # Аугментации
@@ -83,7 +90,7 @@ train_transform = A.Compose([
         num_holes_range=(1, 3),
         hole_height_range=(0.03, 0.07),
         hole_width_range=(0.03, 0.07),
-        fill=(0.54334275*255, 0.52534667*255, 0.52161565*255),
+        fill=(0.54288839*255, 0.52424041*255, 0.52013308*255),
         p=0.3
     ),
     A.RandomRotate90(p=0.5),
@@ -158,6 +165,23 @@ class AnimeGroupDataset(Dataset):
         
         return best_img, other_img, torch.tensor(target, dtype=torch.float32), group
 
+class SEBlock(nn.Module):
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y
+
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
         super().__init__()
@@ -170,37 +194,25 @@ class EnhancedAnimeRanker(nn.Module):
         state_dict = torch.load(weights_path, map_location=CFG['device'])
         self.backbone.load_state_dict(state_dict)
 
-        self.backbone = nn.Sequential(
-            self.backbone[0],  # body (до head)
-            self.backbone[1][0],  # AdaptiveConcatPool2d
-            self.backbone[1][1]   # Flatten
+        body = self.backbone[0]  # CNN до pooling
+
+        self.feature_extractor = nn.Sequential(
+            body,
+            SEBlock(2048),
+            nn.Dropout2d(0.1),   # стабилизирует
+            SEBlock(2048),
+            self.backbone[1][0],
+            self.backbone[1][1]
         )
+
         feature_size = 4096
-        
-        self.rank_head = nn.Sequential(
-            nn.Linear(feature_size, 2048),
-            nn.GELU(),
-            nn.LayerNorm(2048),
-            nn.Dropout(0.3),
-            nn.Linear(2048, 1024),
-            nn.GELU(),
-            nn.LayerNorm(1024),
-            nn.Dropout(0.2),
-            nn.Linear(1024, 512),
-            nn.GELU(),
-            nn.LayerNorm(512),
-            nn.Dropout(0.2),
-            nn.Linear(512, 256),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(256, 1)
-        )
+        self.rank_head = nn.Linear(feature_size, 1)
     
     def forward(self, x):
         batch_size = x.size(0)
         num_images = x.size(1) if x.dim() == 5 else 1
         x = x.view(-1, 3, x.size(-2), x.size(-1))
-        features = self.backbone(x)
+        features = self.feature_extractor(x)
         features = features.view(batch_size, num_images, -1)
         scores = torch.stack([self.rank_head(features[i]) for i in range(batch_size)], dim=0)
         return scores.squeeze(-1)
@@ -233,63 +245,117 @@ def read_groups_from_txt(file_path):
 
 def evaluate(model, dataloader, device):
     model.eval()
+
     top1_correct = 0
     top2_correct = 0
     ndcg_scores = []
-    
+
+    correct_pairs = 0
+    total_pairs = 0
+
+    group_data = {}  # group_id -> {'images': [], 'best_mask': []}
+
     with torch.no_grad():
-        group_dict = {}
-        for batch_idx, (best_images, other_images, _, group_names) in enumerate(dataloader):
+        # =========================
+        # 1. ПРОХОД ПО ПАРАМ
+        # =========================
+        for best_images, other_images, targets, group_names in dataloader:
+            best_images = best_images.to(device, non_blocking=True)
+            other_images = other_images.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+
+            scores_best = model(best_images.unsqueeze(1)).squeeze(-1)
+            scores_other = model(other_images.unsqueeze(1)).squeeze(-1)
+
+            # -------- Pair accuracy --------
+            diff = scores_best - scores_other
+            predicted_sign = torch.sign(diff)
+            correct_pairs += (predicted_sign == targets).sum().item()
+            total_pairs += targets.size(0)
+
+            # -------- Сбор групп --------
             for i in range(best_images.size(0)):
-                group_id = group_names[i]
-                if group_id not in group_dict:
-                    group_dict[group_id] = []
-                group_dict[group_id].append(best_images[i:i+1])
-                group_dict[group_id].append(other_images[i:i+1])
-        
-        for group_id, images in group_dict.items():
-            if len(images) < 8:
-                print(f"Предупреждение: неполная группа {group_id} с {len(images)} изображениями")
+                gid = group_names[i]
+
+                if gid not in group_data:
+                    group_data[gid] = {'images': [], 'best_mask': []}
+
+                # Добавляем best
+                group_data[gid]['images'].append(best_images[i:i+1])
+                group_data[gid]['best_mask'].append(1)
+
+                # Добавляем other
+                group_data[gid]['images'].append(other_images[i:i+1])
+                group_data[gid]['best_mask'].append(0)
+
+        # =========================
+        # 2. ГРУППОВЫЕ МЕТРИКИ
+        # =========================
+        valid_groups = 0
+
+        for gid, data in group_data.items():
+            imgs = data['images']
+            best_mask = data['best_mask']
+
+            # -------- Дедупликация без потери best --------
+            hash_to_idx = {}
+            unique_imgs = []
+            unique_is_best = []
+
+            for img, is_best in zip(imgs, best_mask):
+                h = hash(img.cpu().numpy().tobytes())
+
+                if h not in hash_to_idx:
+                    hash_to_idx[h] = len(unique_imgs)
+                    unique_imgs.append(img)
+                    unique_is_best.append(is_best)
+                else:
+                    idx = hash_to_idx[h]
+                    unique_is_best[idx] = max(unique_is_best[idx], is_best)
+
+            # -------- Проверка полноты группы --------
+            if len(unique_imgs) != 5:
+                # можно убрать print если не нужен лог
+                print(f"Пропуск группы {gid}: {len(unique_imgs)} вместо 5")
                 continue
-            group_images = []
-            seen_hashes = set()
-            for img in images:
-                img_hash = hash(img.cpu().numpy().tobytes())
-                if img_hash not in seen_hashes:
-                    group_images.append(img)
-                    seen_hashes.add(img_hash)
-            if len(group_images) != 5:
-                print(f"Предупреждение: группа {group_id} имеет {len(group_images)} уникальных изображений вместо 5")
+
+            # -------- Получаем индекс лучшего --------
+            if 1 not in unique_is_best:
+                print(f"Нет best в группе {gid}")
                 continue
-            group_images = torch.cat(group_images[:5], dim=0).to(device)
-            labels = torch.zeros(1, dtype=torch.long).to(device)
-            
-            if group_images.shape[1] != 3:
-                print(f"Ошибка: группа {group_id} имеет {group_images.shape[1]} каналов вместо 3")
-                continue
-            scores = model(group_images.unsqueeze(0))
-            
-            ranked_indices = torch.argsort(scores, dim=1, descending=True)
-            top1_correct += (ranked_indices[:, 0] == labels).sum().item()
-            top2_correct += sum([1 for i in range(len(labels)) if labels[i] in ranked_indices[i, :2]])
-            
-            batch_true = np.zeros(scores.shape)
-            for i, label in enumerate(labels.cpu().numpy()):
-                batch_true[i, label] = 1
-                
-            try:
-                batch_ndcg = ndcg_score(batch_true, scores.cpu().numpy(), k=5)
-                ndcg_scores.append(batch_ndcg)
-            except Exception as e:
-                print(f"Ошибка в NDCG для группы {group_id}: {e}")
-                continue
-                
+
+            best_idx = unique_is_best.index(1)
+
+            # -------- Прогон через модель --------
+            group_tensor = torch.cat(unique_imgs, dim=0).to(device)  # [5, 3, H, W]
+            scores = model(group_tensor.unsqueeze(0)).squeeze(0)     # [5]
+
+            # -------- Ranking --------
+            ranked = torch.argsort(scores, descending=True)
+
+            top1_correct += (ranked[0].item() == best_idx)
+            top2_correct += (best_idx in ranked[:2].tolist())
+
+            # -------- NDCG --------
+            true_rel = np.zeros((1, 5))
+            true_rel[0, best_idx] = 1
+
+            pred_scores = scores.cpu().numpy().reshape(1, -1)
+            ndcg_scores.append(ndcg_score(true_rel, pred_scores, k=5))
+
+            valid_groups += 1
+
+    # =========================
+    # 3. ФИНАЛЬНЫЕ МЕТРИКИ
+    # =========================
+    pair_accuracy = correct_pairs / total_pairs if total_pairs > 0 else 0.0
     mean_ndcg = np.nanmean(ndcg_scores) if ndcg_scores else 0.0
-    total_groups = len([g for g in group_dict.values() if len(g) >= 8])
+
     return {
-        'top1': top1_correct / total_groups if total_groups > 0 else 0.0,
-        'top2': top2_correct / total_groups if total_groups > 0 else 0.0,
-        'ndcg': mean_ndcg
+        'top1': top1_correct / valid_groups if valid_groups > 0 else 0.0,
+        'top2': top2_correct / valid_groups if valid_groups > 0 else 0.0,
+        'ndcg': mean_ndcg,
+        'pair_acc': pair_accuracy
     }
 
 def train():
@@ -305,9 +371,9 @@ def train():
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
-    
+
     train_loader = DataLoader(
-        ConcatDataset([train_ds, retrain_ds]),
+        train_ds,
         batch_size=CFG['batch_size'],
         shuffle=True,
         num_workers=CFG['num_workers'],
@@ -337,28 +403,20 @@ def train():
             print(f"Предупреждение: NaN или Inf в весах {name}")
     
     optimizer = torch.optim.AdamW([
-        {'params': model.backbone.parameters(), 'lr': CFG['backbone_lr']},
+        {'params': model.feature_extractor.parameters(), 'lr': CFG['backbone_lr']},
         {'params': model.rank_head.parameters(), 'lr': CFG['head_lr']}
     ], weight_decay=CFG['weight_decay'])
     
     swa_model = AveragedModel(model)
     swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
-    # Новый шедулер
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='max',  # Максимизируем NDCG
-        factor=CFG['lr_factor'],
-        patience=CFG['lr_patience'],
-        threshold=CFG['lr_threshold'],
-        min_lr=CFG['min_lr']
-    )
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
     criterion = SoftFocalPairwiseLoss()
     scaler = GradScaler('cuda')
     
     best_ndcg = 0
     best_top1 = 0
     best_swa_ndcg = 0
-    patience = 10
+    patience = 20
     epochs_without_improvement = 0
     history = {
         'train_loss': [],
@@ -401,21 +459,22 @@ def train():
                 continue
             
             loss.backward()
-            head_grad_norm = torch.nn.utils.clip_grad_norm_(model.rank_head.parameters(), CFG['grad_clip'])
-            backbone_grad_norm = torch.nn.utils.clip_grad_norm_(model.backbone.parameters(), CFG['grad_clip'])
-            
-            if torch.isnan(head_grad_norm) or torch.isinf(head_grad_norm) or \
-               torch.isnan(backbone_grad_norm) or torch.isinf(backbone_grad_norm):
-                print(f"Предупреждение: NaN/Inf градиент на эпохе {epoch+1}, пакет {progress_bar.n}")
-                optimizer.zero_grad(set_to_none=True)
-                continue
+            # 🔹 считаем реальные нормы ДО клипа
+            head_grad_norm = get_grad_norm(model.rank_head.parameters())
+            backbone_grad_norm = get_grad_norm(model.feature_extractor.parameters())
+
+            # 🔹 один общий клип
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                CFG['grad_clip']
+            )
             
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             
             epoch_loss += loss.item()
-            epoch_head_grad_norm += head_grad_norm.item()
-            epoch_backbone_grad_norm += backbone_grad_norm.item()
+            epoch_head_grad_norm += head_grad_norm
+            epoch_backbone_grad_norm += backbone_grad_norm
             
             progress_bar.set_postfix({
                 'loss': f'{loss.item():.4f}'
@@ -429,9 +488,6 @@ def train():
         history['train_loss'].append(epoch_loss / len(train_loader))
         history['val_ndcg'].append(val_metrics['ndcg'])
         history['val_top1'].append(val_metrics['top1'])
-        
-        # Обновляем шедулер на основе валидационного NDCG
-        scheduler.step(val_metrics['ndcg'])
         
         if epoch >= CFG['swa_start']:
             swa_model.update_parameters(model)
@@ -448,6 +504,8 @@ def train():
         else:
             history['swa_val_ndcg'].append(0.0)
             history['swa_val_top1'].append(0.0)
+        
+        scheduler.step()
         
         if val_metrics['ndcg'] > best_ndcg:
             best_ndcg = val_metrics['ndcg']
@@ -467,6 +525,7 @@ def train():
         print(f"Val NDCG: {val_metrics['ndcg']:.4f}")
         print(f"Val Top-1 Точность: {val_metrics['top1']:.4f}")
         print(f"Val Top-2 Точность: {val_metrics['top2']:.4f}")
+        print(f"Val Pair Accuracy: {val_metrics['pair_acc']:.2f}")
         print(f"Средняя норма градиента головы: {avg_head_grad_norm:.4f}")
         print(f"Средняя норма градиента backbone: {avg_backbone_grad_norm:.4f}")
         print("-" * 50)

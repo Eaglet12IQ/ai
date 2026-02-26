@@ -40,8 +40,10 @@ def retrain():
         num_workers=CFG['num_workers'],
         collate_fn=my_collate_fn,
         pin_memory=True,
-        prefetch_factor=2,
-        worker_init_fn=worker_init_fn
+        prefetch_factor=4,
+        worker_init_fn=worker_init_fn,
+        drop_last=True,
+        persistent_workers=True,
     )
 
     val_loader = DataLoader(

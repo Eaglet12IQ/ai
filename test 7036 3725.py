@@ -328,7 +328,7 @@ def train():
         retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
         
         train_loader = DataLoader(
-            ConcatDataset([train_ds, retrain_ds]),
+            train_ds,
             batch_size=CFG['batch_size'],
             shuffle=True,
             num_workers=CFG['num_workers'],

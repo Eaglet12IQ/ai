@@ -251,7 +251,7 @@ used_tags = set()
 
 count = 3
 search_type = "character"
-tags = [["yaoyorozu_momo", "character"], ["hado_nejire", "character"], ["nami_(one_piece)", "character"]]
+tags = [["eris_greyrat", "character"], ["toga_himiko", "character"], ["emilia_(re:zero)", "character"]]
 rating = "general"
 
 for i in range(0, count):

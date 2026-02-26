@@ -302,7 +302,7 @@ def train():
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
-    
+
     train_loader = DataLoader(
         train_ds,
         batch_size=CFG['batch_size'],
@@ -310,8 +310,10 @@ def train():
         num_workers=CFG['num_workers'],
         collate_fn=my_collate_fn,
         pin_memory=True,
-        prefetch_factor=2,
-        worker_init_fn=worker_init_fn
+        prefetch_factor=4,
+        worker_init_fn=worker_init_fn,
+        drop_last=True,
+        persistent_workers=True,
     )
     
     val_loader = DataLoader(
