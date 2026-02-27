@@ -294,9 +294,7 @@ battery_indicator
 pornography_production
 milestone_celebration
 body_writing
-multiple_girls
 fake_magazine_cover
-multiple_boys
 spanish_text
 metal_collar
 mini_person
@@ -570,3 +568,6 @@ chinese_new_year
 year_of_the_horse
 album_name
 death_(tarot)
+2018
+2016
+2017
