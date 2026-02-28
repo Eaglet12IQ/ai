@@ -8,3 +8,5 @@ llm/best_tag_transformer-2_7644.pth
 llm/unique_prompts.csv
 .vscode
 danbooru_general_unique.csv
+danbooru_general_unique_shuffled.csv
+best_tag_transformer_new-6_8746

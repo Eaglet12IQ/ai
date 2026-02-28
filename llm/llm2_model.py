@@ -9,6 +9,8 @@ from collections import Counter
 import random
 import os
 import re
+import math
+from tqdm import tqdm
 
 # Фиксация случайности
 random.seed(42)
@@ -17,11 +19,13 @@ torch.manual_seed(42)
 torch.cuda.manual_seed_all(42) if torch.cuda.is_available() else None
 
 # ─────────────────────────────────────────────────────────────
-# 1. Подготовка данных (без изменений датасета!)
+# 1. Подготовка данных
 # ─────────────────────────────────────────────────────────────
 
-df = pd.read_csv('llm/unique_prompts.csv')
-sequences = [row['output'].strip().split(', ') for _, row in df.iterrows() if row['output'].strip()]
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+df = pd.read_csv('danbooru_general_unique_shuffled.csv')
+sequences = [row['tags'].strip().split(', ') for _, row in df.iterrows() if row['tags'].strip()]
 
 # Добавляем EOS
 EOS_TOKEN = "<EOS>"
@@ -40,21 +44,40 @@ idx_to_tag = {idx: tag for tag, idx in tag_to_idx.items()}
 pad_idx = tag_to_idx["<PAD>"]
 eos_idx = tag_to_idx["<EOS>"]
 
-# Индексация
+# === Подготовка для настоящего BPB (true Bits-Per-Byte) ===
+byte_length = torch.zeros(vocab_size, dtype=torch.float32)
+for idx, tag in idx_to_tag.items():
+    if tag not in ("<PAD>", "<EOS>"):
+        byte_length[idx] = len(tag.encode('utf-8'))
+byte_length = byte_length.to(device)
+
+# Индексация последовательностей
 indexed_sequences = [[tag_to_idx[tag] for tag in seq] for seq in sequences]
 
 train_seqs, val_seqs = train_test_split(indexed_sequences, test_size=0.1, random_state=42)
 
 class TagDataset(Dataset):
-    def __init__(self, sequences):
+    def __init__(self, sequences, shuffle_tags=True):
         self.sequences = sequences
+        self.shuffle_tags = shuffle_tags
 
     def __len__(self):
         return len(self.sequences)
 
     def __getitem__(self, idx):
-        seq = self.sequences[idx]
-        return torch.tensor(seq[:-1]), torch.tensor(seq[1:])
+        seq = self.sequences[idx][:]              # копия
+
+        if self.shuffle_tags:
+            tags = seq[:-1]                       # всё кроме EOS
+            random.shuffle(tags)
+            shuffled_seq = tags + [eos_idx]
+        else:
+            shuffled_seq = seq
+
+        input_seq = shuffled_seq[:-1]
+        target_seq = shuffled_seq[1:]
+
+        return torch.tensor(input_seq), torch.tensor(target_seq)
 
 def collate_fn(batch):
     inputs = [item[0] for item in batch]
@@ -66,14 +89,14 @@ def collate_fn(batch):
     return padded_inputs, padded_targets
 
 batch_size = 64
-train_dataset = TagDataset(train_seqs)
-val_dataset   = TagDataset(val_seqs)
+train_dataset = TagDataset(train_seqs, shuffle_tags=True)
+val_dataset   = TagDataset(val_seqs,   shuffle_tags=False)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  collate_fn=collate_fn)
 val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
 # ─────────────────────────────────────────────────────────────
-# 2. Модель (без изменений)
+# 2. Модель
 # ─────────────────────────────────────────────────────────────
 
 class PositionalEncoding(nn.Module):
@@ -127,7 +150,6 @@ class TagTransformer(nn.Module):
         return self.fc(x)
 
 model = TagTransformer(vocab_size, pad_idx=pad_idx)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
 # ─────────────────────────────────────────────────────────────
@@ -147,51 +169,104 @@ best_val_loss = float('inf')
 patience = 5
 counter = 0
 
-for epoch in range(num_epochs):
+for epoch in tqdm(range(num_epochs), desc="Эпохи", position=0, ncols=100):
+    # === Training ===
     model.train()
-    train_loss = 0
-    for inputs, targets in train_loader:
+    train_loss = 0.0
+    
+    train_pbar = tqdm(train_loader, 
+                      desc=f"  Train {epoch+1:2d}/{num_epochs}",
+                      leave=False, 
+                      position=1,
+                      ncols=100)
+    
+    for inputs, targets in train_pbar:
         inputs, targets = inputs.to(device), targets.to(device)
-
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs.view(-1, vocab_size), targets.view(-1))
         loss.backward()
         optimizer.step()
+        
         train_loss += loss.item()
-
+        current_avg = train_loss / (train_pbar.n + 1)
+        train_pbar.set_postfix({'loss': f'{current_avg:.4f}'})
+    
     avg_train_loss = train_loss / len(train_loader)
-
+    
+    # === Validation + TRUE BPB ===
     model.eval()
-    val_loss = 0
+    val_loss = 0.0
+    total_weighted_nll = 0.0      # ∑ (NLL_nats × bytes)
+    total_bytes_val = 0
+
+    val_pbar = tqdm(val_loader, 
+                    desc=f"   Val  {epoch+1:2d}/{num_epochs}",
+                    leave=False, 
+                    position=1,
+                    ncols=100)
+    
     with torch.no_grad():
-        for inputs, targets in val_loader:
+        for inputs, targets in val_pbar:
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
+            
+            # Обычный loss для scheduler и логов
             loss = criterion(outputs.view(-1, vocab_size), targets.view(-1))
             val_loss += loss.item()
-
+            
+            # ─── Настоящий BPB ───
+            per_token_nll = nn.functional.cross_entropy(
+                outputs.view(-1, vocab_size),
+                targets.view(-1),
+                ignore_index=-100,
+                reduction='none'
+            )
+            
+            flat_targets = targets.view(-1)
+            mask = (flat_targets != -100)
+            
+            if mask.any():
+                valid_targets = flat_targets[mask]
+                bytes_tensor = byte_length[valid_targets].to(device)
+                
+                total_weighted_nll += (per_token_nll[mask] * bytes_tensor).sum().item()
+                total_bytes_val += bytes_tensor.sum().item()
+            
+            current_avg = val_loss / (val_pbar.n + 1)
+            val_pbar.set_postfix({'loss': f'{current_avg:.4f}'})
+    
     avg_val_loss = val_loss / len(val_loader)
+    
+    # Финальный TRUE BPB
+    if total_bytes_val > 0:
+        nats_per_byte = total_weighted_nll / total_bytes_val
+        val_bpb = nats_per_byte / math.log(2)
+    else:
+        val_bpb = 0.0
+
     scheduler.step(avg_val_loss)
 
-    print(f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+    tqdm.write(f"Epoch [{epoch+1:2d}/{num_epochs}] | "
+               f"Train Loss: {avg_train_loss:.4f} | "
+               f"Val Loss: {avg_val_loss:.4f} | "
+               f"Val BPB: {val_bpb:.4f}")
 
     if avg_val_loss < best_val_loss:
         best_val_loss = avg_val_loss
         torch.save(model.state_dict(), "llm/best_tag_transformer.pth")
-        print("→ Сохранена лучшая модель")
+        tqdm.write("→ Сохранена лучшая модель")
         counter = 0
     else:
         counter += 1
         if counter >= patience:
-            print(f"Early stopping на эпохе {epoch+1}")
+            tqdm.write(f"Early stopping на эпохе {epoch+1}")
             break
 
 # ─────────────────────────────────────────────────────────────
-# 5. Генерация с frequency penalty и no-repeat
+# 5. Генерация (без изменений)
 # ─────────────────────────────────────────────────────────────
 
-# Глобальный frequency penalty (штраф по частоте токена)
 token_freq = Counter([tag for seq in sequences for tag in seq])
 max_freq = max(token_freq.values())
 freq_penalty_dict = {tag_to_idx[t]: token_freq[t] / max_freq for t in token_freq}
@@ -234,35 +309,26 @@ def sample_token(logits, temperature=1.0, top_k=40, top_p=0.9):
 def generate_full_prompt(model, start_tags, temperature=0.95, max_new_tokens=60):
     model.eval()
     
-    sequence = start_tags.copy()           # список строк
-    used = set(start_tags)                 # уже использованные теги (строки)
+    sequence = start_tags.copy()
+    used = set(start_tags)
     
     banned_idxs = {tag_to_idx["<PAD>"]}
     
     for _ in range(max_new_tokens):
-        # готовим вход
         input_ids = [tag_to_idx[t] for t in sequence]
         input_tensor = torch.tensor([input_ids], device=device)
         
         with torch.no_grad():
-            logits = model(input_tensor)[:, -1, :]     # shape [1, vocab]
+            logits = model(input_tensor)[:, -1, :]
             
-            # ─── Самое главное: убираем уже использованные теги ────────
             for tag in used:
                 idx = tag_to_idx.get(tag)
                 if idx is not None:
                     logits[0, idx] = -1e9
             
-            # технические тоже
             for idx in banned_idxs:
                 logits[0, idx] = -1e9
             
-            # можно оставить небольшой штраф на brown hair, если он всё равно доминирует
-            # brown_idx = tag_to_idx.get("brown hair")
-            # if brown_idx is not None and len(sequence) > 3:
-            #     logits[0, brown_idx] -= 8.0
-            
-            # сэмплинг
             probs = torch.softmax(logits / temperature, dim=-1)
             next_idx = torch.multinomial(probs, num_samples=1).item()
         
@@ -272,20 +338,20 @@ def generate_full_prompt(model, start_tags, temperature=0.95, max_new_tokens=60)
             break
         
         sequence.append(next_tag)
-        used.add(next_tag)                     # сразу запрещаем на следующий шаг
+        used.add(next_tag)
     
     return ", ".join(sequence)
 
-# Тестирование
-model.load_state_dict(torch.load("llm/best_tag_transformer.pth"))
+# Загрузка лучшей модели и тест
+model.load_state_dict(torch.load("llm/best_tag_transformer.pth", map_location=device))
 model.eval()
 
-print("Генерация 5 вариантов:")
+print("\nГенерация 5 вариантов:")
 for i in range(5):
     prompt = generate_full_prompt(
         model,
         start_tags=["1girl", "cosplay"],
-        temperature=0.9,           # 0.8–1.1 обычно нормально
+        temperature=0.9,
         max_new_tokens=500
     )
     print(f"Вариант {i+1}: {prompt}")
