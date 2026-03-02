@@ -24,7 +24,7 @@ torch.cuda.manual_seed_all(42) if torch.cuda.is_available() else None
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-df = pd.read_csv('danbooru_general_unique_shuffled.csv')
+df = pd.read_csv('danbooru_general_unique_shuffled_cleaned_top_1000.csv')
 sequences = [row['tags'].strip().split(', ') for _, row in df.iterrows() if row['tags'].strip()]
 
 # Добавляем EOS
@@ -164,7 +164,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0
 # 4. Обучение
 # ─────────────────────────────────────────────────────────────
 
-num_epochs = 30
+num_epochs = 10
 best_val_loss = float('inf')
 patience = 5
 counter = 0
@@ -350,7 +350,7 @@ print("\nГенерация 5 вариантов:")
 for i in range(5):
     prompt = generate_full_prompt(
         model,
-        start_tags=["1girl", "cosplay"],
+        start_tags=["1girl"],
         temperature=0.9,
         max_new_tokens=500
     )
