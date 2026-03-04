@@ -1,8 +1,7 @@
 import pandas as pd
-import numpy as np
 from collections import Counter
 import random
-import os
+import matplotlib.pyplot as plt
 
 # ─────────────────────────────────────────────────────────────
 # Фиксация воспроизводимости
@@ -97,7 +96,7 @@ df = df.drop(columns=['tags_set'])
 # ─────────────────────────────────────────────────────────────
 # 2. Фильтрация по длине — ТОЛЬКО ТЕПЕРЬ
 # ─────────────────────────────────────────────────────────────
-print("\nСчитаем длины последовательностей после всех фильтров...")
+print("Считаем длины последовательностей...")
 
 def count_tags(tags_str):
     if not str(tags_str).strip():
@@ -109,6 +108,9 @@ df['tag_count'] = df['tags'].apply(count_tags)
 print("Статистика длин после обрезки и очистки:")
 print(df['tag_count'].describe(percentiles=[0.05, 0.25, 0.5, 0.75, 0.95]))
 
+# Сохраняем распределение ДО фильтра
+tag_counts_before = df['tag_count'].copy()
+
 low_q = df['tag_count'].quantile(0.05)
 high_q = df['tag_count'].quantile(0.95)
 
@@ -118,11 +120,34 @@ before_len = len(df)
 df = df[(df['tag_count'] >= low_q) & (df['tag_count'] <= high_q)].copy()
 after_len = len(df)
 
+# Сохраняем распределение ПОСЛЕ фильтра
+tag_counts_after = df['tag_count'].copy()
+
 print(f"Было строк: {before_len:,}")
 print(f"Стало строк: {after_len:,}")
-diff = before_len - after_len
-percent = (diff / before_len * 100) if before_len > 0 else 0
-print(f"Удалено по длине: {diff:,} ({percent:.2f}%)\n")
+print(f"Удалено по длине: {before_len - after_len:,} "
+      f"({(before_len - after_len) / before_len * 100:.2f}%)\n")
+
+# ─────────────────────────────────────────────────────────────
+# 2.5. Сохранение overlay-графика
+# ─────────────────────────────────────────────────────────────
+print("Строим график сравнения распределений длины...")
+
+plt.figure(figsize=(10, 6))
+
+plt.hist(tag_counts_before, bins=50, alpha=0.5, density=True, label="До удаления")
+plt.hist(tag_counts_after, bins=50, alpha=0.5, density=True, label="После удаления")
+
+plt.xlabel("Количество тегов в строке")
+plt.ylabel("Плотность")
+plt.title("Сравнение распределения длины промптов")
+plt.legend()
+
+plot_path = f"length_distribution_comparison_top_{TOP_N}.png"
+plt.savefig(plot_path, dpi=300)
+plt.close()
+
+print(f"✅ График сохранён: {plot_path}")
 
 # ─────────────────────────────────────────────────────────────
 # 3. Сохранение результата
