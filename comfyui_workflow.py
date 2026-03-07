@@ -5,6 +5,7 @@ from danbooru_api.main import main
 import re
 import os
 import time
+from pathlib import Path
 from predict import select_best_4level_flat
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -13,6 +14,23 @@ import shutil
 import tempfile
 import subprocess
 from PIL import Image
+
+# ─── загрузка переменных из .env ─────────────────────────────────────────────
+def load_env():
+    env_path = Path(__file__).parent / '.env'
+    env_vars = {}
+    if env_path.exists():
+        with env_path.open('r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and '=' in line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+    return env_vars
+
+ENV_VARS = load_env()
+PROXY_STR = ENV_VARS.get('proxy_str', '')
+PROXIES_FROM_URL = ENV_VARS.get('proxies_from_url', '')
 
 def get_gif_color_count(path):
     """Определение количества уникальных цветов в первом кадре GIF."""
@@ -147,7 +165,7 @@ def get_tags_for_date(current_date, depth=0, max_depth=30, proxies_list=None):
     url = f'https://danbooru.donmai.us/explore/posts/searches?date={date_str}'
     
     if not proxies_list:
-        proxies_list = load_proxies_from_url("https://proxy.webshare.io/api/v2/proxy/list/download/jxerjrnkysbdnhlzhnhnglewhvjalpupcunqxutc/-/any/username/direct/-/?plan_id=11389346")
+        proxies_list = load_proxies_from_url(PROXIES_FROM_URL) if PROXIES_FROM_URL else []
     
     session = requests.Session()
     
