@@ -4,6 +4,25 @@ import time
 from urllib.parse import quote
 import re
 import random
+import os
+from pathlib import Path
+
+# ─── загрузка переменных из .env ─────────────────────────────────────────────
+def load_env():
+    env_path = Path(__file__).parent.parent / '.env'
+    env_vars = {}
+    if env_path.exists():
+        with env_path.open('r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and '=' in line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+    return env_vars
+
+ENV_VARS = load_env()
+PROXY_STR = ENV_VARS.get('proxy_str', '')
+PROXIES_FROM_URL = ENV_VARS.get('proxies_from_url', '')
 
 def load_proxies_from_url(url):
     try:
@@ -138,7 +157,7 @@ def fetch_danbooru_posts(tag, page=1, limit=100, proxies_list=None):
     auth = ('sunsiutaAI', 'm5vtFYic7ZH4vFM2jZ8gMGYs')
     
     if not proxies_list:
-        proxies_list = load_proxies_from_url("https://proxy.webshare.io/api/v2/proxy/list/download/jxerjrnkysbdnhlzhnhnglewhvjalpupcunqxutc/-/any/username/direct/-/?plan_id=11389346")
+        proxies_list = load_proxies_from_url(PROXIES_FROM_URL) if PROXIES_FROM_URL else []
     
     if not proxies_list:
         print("Ошибка: список прокси пуст. Выполняю запрос без прокси.")
@@ -212,7 +231,7 @@ def save_new_tags_to_file(new_tags_set):
 def collect_posts_for_rating(tag, rating, existing_ids, target_count, new_posts, skip_tags, remove_tags, allowed_character_tags, search_type, request_id, existing_tags, new_tags_set):
     page = 1
     search_tag = tag if not rating else f"{tag} rating:{rating}"
-    proxies_list = load_proxies_from_url("https://proxy.webshare.io/api/v2/proxy/list/download/jxerjrnkysbdnhlzhnhnglewhvjalpupcunqxutc/-/any/username/direct/-/?plan_id=11389346")
+    proxies_list = load_proxies_from_url(PROXIES_FROM_URL) if PROXIES_FROM_URL else []
     
     while len(new_posts) < target_count:
         posts = fetch_danbooru_posts(search_tag, page, proxies_list=proxies_list)

@@ -4,9 +4,23 @@ import csv
 import random
 from urllib.parse import quote
 from pathlib import Path
-from typing import Set, List, Optional
+from typing import Set, List
 
-# ─── вспомогательные функции (без изменений) ────────────────────────────────
+def load_env():
+    env_path = Path(__file__).parent.parent / '.env'
+    env_vars = {}
+    if env_path.exists():
+        with env_path.open('r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and '=' in line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+    return env_vars
+
+ENV_VARS = load_env()
+PROXY_STR = ENV_VARS.get('proxy_str', '')
+
 def load_tags_from_file(filename: str) -> Set[str]:
     try:
         with open(filename, 'r', encoding='utf-8') as f:
@@ -15,12 +29,10 @@ def load_tags_from_file(filename: str) -> Set[str]:
         print(f"Файл {filename} не найден → пустой набор")
         return set()
 
-
 def normalize_tags(tags_str: str) -> frozenset:
     if not tags_str:
         return frozenset()
     return frozenset(t.strip() for t in tags_str.split(',') if t.strip())
-
 
 def format_tags(character_tags: str, general_tags: str, remove_tags: Set[str]) -> str:
     tags = ' '.join([character_tags, general_tags]).strip()
@@ -34,12 +46,10 @@ def format_tags(character_tags: str, general_tags: str, remove_tags: Set[str]) -
         formatted.append(tag)
     return ', '.join(formatted)
 
-
 def fetch_danbooru_posts(tags_query: str, page: int, limit=100) -> list:
     url = f"https://danbooru.donmai.us/posts.json?tags={quote(tags_query)}&page={page}&limit={limit}"
     headers = {'User-Agent': 'DanbooruSequentialFetcher/0.5'}
-    proxy_str = "http://aTrW6z5K6K:K3sRNZPdjI@193.124.133.137:21318"
-    proxies = {"http": proxy_str, "https": proxy_str}
+    proxies = {"http": PROXY_STR, "https": PROXY_STR} if PROXY_STR else {}
     auth = ('sunsiutaAI', 'm5vtFYic7ZH4vFM2jZ8gMGYs')
     max_attempts = 4
     for attempt in range(1, max_attempts + 1):
@@ -59,40 +69,12 @@ def fetch_danbooru_posts(tags_query: str, page: int, limit=100) -> list:
     print("Страница не загрузилась после всех попыток")
     return []
 
-
 def should_accept_post(char_tags_str: str, allowed_chars: Set[str]) -> bool:
     if not char_tags_str.strip():
         return True
     char_set = set(char_tags_str.split())
     return char_set.issubset(allowed_chars)
 
-
-def get_last_character_from_csv(csv_path: str, allowed_chars: Set[str]) -> Optional[str]:
-    csv_file = Path(csv_path)
-    if not csv_file.exists() or csv_file.stat().st_size == 0:
-        return None
-
-    last_tags = None
-    with csv_file.open('r', encoding='utf-8', newline='') as f:
-        reader = csv.DictReader(f)
-        for row in reader:  # просто дойдём до конца
-            last_tags = row.get('tags', '').strip()
-
-    if not last_tags:
-        return None
-
-    first_tag = last_tags.split(',', 1)[0].strip()
-    first_tag = first_tag.replace(' ', '_')
-    # проверяем, что это вообще наш персонаж
-    if first_tag in allowed_chars:
-        print(f"→ Найден последний персонаж в csv: {first_tag}")
-        return first_tag
-
-    print(f"→ Последняя строка csv не содержит известного персонажа ({first_tag}) → начинаем с начала")
-    return None
-
-
-# ─── основная функция ───────────────────────────────────────────────────────
 def sequential_per_character_then_general(
     csv_path: str = "danbooru_general_unique.csv",
     batch_save_every: int = 200,
@@ -125,18 +107,8 @@ def sequential_per_character_then_general(
 
     batch: List[dict] = []
 
-    # Определяем, с какого персонажа начинать
-    start_from = get_last_character_from_csv(csv_path, allowed_chars)
     characters_to_process = sorted(allowed_chars)
 
-    if start_from and start_from in characters_to_process:
-        idx = characters_to_process.index(start_from)
-        characters_to_process = characters_to_process[idx:]  # с него и до конца
-        print(f"→ Продолжаем с персонажа: {start_from} ({len(characters_to_process)} шт. осталось)")
-    else:
-        print("→ Начинаем с самого первого персонажа")
-
-    # ─── Фаза 1: по каждому персонажу до конца страниц ──────────────────────
     print("\n=== Фаза 1: парсинг по каждому персонажу до исчерпания страниц ===")
     for character in characters_to_process:
         print(f"\n→ Персонаж: {character}")
@@ -184,68 +156,7 @@ def sequential_per_character_then_general(
             page += 1
             time.sleep(2.4 + random.uniform(0, 2.0))
 
-    print("\nВсе персонажи пройдены до конца → переходим в общий режим (или завершаем)")
-
-    # # ─── Фаза 2: бесконечный общий режим rating:g ───────────────────────────
-    # print("=== Фаза 2: бесконечный сбор rating:g (без привязки к персонажу) ===")
-
-    # page = 1
-    # while True:
-    #     try:
-    #         posts = fetch_danbooru_posts("rating:g", page)
-
-    #         if not posts:
-    #             print(f"Общая стр {page} пустая → пауза 120 сек")
-    #             time.sleep(120)
-    #             page += 1
-    #             continue
-
-    #         new_in_page = 0
-
-    #         for post in posts:
-    #             char_tags = post.get('tag_string_character', '').strip()
-    #             gen_tags  = post.get('tag_string_general', '').strip()
-
-    #             if not should_accept_post(char_tags, allowed_chars):
-    #                 continue
-
-    #             all_tags_set = set(char_tags.split() + gen_tags.split())
-    #             if skip_tags & all_tags_set:
-    #                 continue
-
-    #             formatted = format_tags(char_tags, gen_tags, remove_tags)
-    #             if not formatted:
-    #                 continue
-
-    #             norm_set = normalize_tags(formatted)
-    #             if norm_set in seen_tag_sets:
-    #                 continue
-
-    #             batch.append({'tags': formatted})
-    #             seen_tag_sets.add(norm_set)
-    #             new_in_page += 1
-    #             total_saved += 1
-
-    #         if new_in_page > 0:
-    #             print(f"[общий] стр {page:6d} → +{new_in_page:4d}  (всего: {total_saved:,d})")
-
-    #         if batch and len(batch) >= batch_save_every:
-    #             _save_batch(csv_file, batch, fieldnames)
-    #             batch.clear()
-
-    #         page += 1
-    #         time.sleep(2.7 + random.uniform(0, 2.2))
-
-    #     except KeyboardInterrupt:
-    #         if batch:
-    #             _save_batch(csv_file, batch, fieldnames)
-    #             batch.clear()
-    #         print(f"\nОстановлено. Всего уникальных: {total_saved:,d}")
-    #         break
-    #     except Exception as e:
-    #         print(f"Ошибка в общем режиме стр {page}: {e}")
-    #         time.sleep(150)
-
+    print("\nВсе персонажи пройдены до конца")
 
 def _save_batch(csv_file: Path, batch: List[dict], fieldnames: List[str]):
     mode = 'a' if csv_file.exists() else 'w'
@@ -255,7 +166,6 @@ def _save_batch(csv_file: Path, batch: List[dict], fieldnames: List[str]):
             writer.writeheader()
         writer.writerows(batch)
     print(f"  → сохранено {len(batch)} строк")
-
 
 if __name__ == '__main__':
     sequential_per_character_then_general(
