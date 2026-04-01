@@ -69,10 +69,7 @@ CFG = {
     'swa_start': 80,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'retrain_dir': os.path.join(BASE_DIR, "dataset", "retrain"),
-    'dataset_path': os.path.join(BASE_DIR, "dataset"),
-    'lr_patience': 5,  # Количество эпох без улучшения перед снижением LR
-    'lr_factor': 0.5,  # Фактор уменьшения скорости обучения
-    'lr_threshold': 1e-4  # Минимальное улучшение метрики для предотвращения снижения LR
+    'dataset_path': os.path.join(BASE_DIR, "dataset")
 }
 
 # Аугментации
@@ -83,7 +80,7 @@ train_transform = A.Compose([
         num_holes_range=(1, 3),
         hole_height_range=(0.03, 0.07),
         hole_width_range=(0.03, 0.07),
-        fill=(0.54334275*255, 0.52534667*255, 0.52161565*255),
+        fill=(0.54288839*255, 0.52424041*255, 0.52013308*255),
         p=0.3
     ),
     A.RandomRotate90(p=0.5),
@@ -330,9 +327,9 @@ def train():
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
-    
+
     train_loader = DataLoader(
-        ConcatDataset([train_ds, retrain_ds]),
+        train_ds,
         batch_size=CFG['batch_size'],
         shuffle=True,
         num_workers=CFG['num_workers'],
@@ -368,22 +365,14 @@ def train():
     
     swa_model = AveragedModel(model)
     swa_scheduler = SWALR(optimizer, swa_lr=5e-7)
-    # Новый шедулер
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='max',  # Максимизируем NDCG
-        factor=CFG['lr_factor'],
-        patience=CFG['lr_patience'],
-        threshold=CFG['lr_threshold'],
-        min_lr=CFG['min_lr']
-    )
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
     criterion = SoftFocalPairwiseLoss()
     scaler = GradScaler('cuda')
     
     best_ndcg = 0
     best_top1 = 0
     best_swa_ndcg = 0
-    patience = 10
+    patience = 20
     epochs_without_improvement = 0
     history = {
         'train_loss': [],
@@ -457,9 +446,6 @@ def train():
         history['val_loss'] = history.get('val_loss', [])   # ← добавлено
         history['val_loss'].append(val_metrics['val_loss']) # ← добавлено
         
-        # Обновляем шедулер на основе валидационного NDCG
-        scheduler.step(val_metrics['ndcg'])
-        
         if epoch >= CFG['swa_start']:
             swa_model.update_parameters(model)
             swa_scheduler.step()
@@ -475,6 +461,8 @@ def train():
         else:
             history['swa_val_ndcg'].append(0.0)
             history['swa_val_top1'].append(0.0)
+        
+        scheduler.step()
         
         if val_metrics['ndcg'] > best_ndcg:
             best_ndcg = val_metrics['ndcg']
