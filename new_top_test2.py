@@ -103,58 +103,111 @@ class AnimeGroupDataset(Dataset):
     def __init__(self, root_dir, transform=None, groups=None):
         self.root_dir = root_dir
         self.transform = transform
-        all_groups = groups or [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
-        self.groups = []
+        self.groups = groups or [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
         self.pairs = []
-       
-        for group in all_groups:
-            group_path = os.path.join(root_dir, group)
-            png_files = [f for f in os.listdir(group_path) if f.endswith('.png')]
-            if len(png_files) != 5:
-                continue
+
+    @torch.no_grad()
+    def initialize_pairs(self, model, device, build_chains=True, sim_threshold=0.97):
+        model.eval()
+        self.pairs = []
+        desc = "Формируем train пары" if build_chains else "Формируем val пары"
+        
+        skipped_sim = 0
+        
+        for group in tqdm(self.groups, desc=desc):
+            group_path = os.path.join(self.root_dir, group)
+            png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
             best_txt = os.path.join(group_path, 'best.txt')
-            if os.path.exists(best_txt):
-                with open(best_txt, 'r') as f:
-                    best_file = f.read().strip()
-                if best_file in png_files:
-                    self.groups.append(group)
-                    best_idx = png_files.index(best_file)
-                    for other_idx in range(5):
-                        if other_idx != best_idx:
-                            self.pairs.append((group, best_idx, other_idx, 1))
-                            self.pairs.append((group, other_idx, best_idx, -1))
-                else:
-                    print(f"Предупреждение: в группе {group} файл best.txt указывает на неверный файл {best_file}")
-            else:
-                print(f"Предупреждение: файл best.txt не найден в группе {group}")
+            
+            if not os.path.exists(best_txt) or len(png_files) < 5:
+                continue
+                
+            with open(best_txt, 'r') as f:
+                best_file = f.read().strip()
+            
+            if best_file not in png_files:
+                continue
+                
+            best_idx = png_files.index(best_file)
+            other_indices = [i for i in range(len(png_files)) if i != best_idx]
+
+            # 1. Считаем эмбеддинги для всей группы (5 фото)
+            imgs = []
+            for idx in [best_idx] + other_indices:
+                img_path = os.path.join(group_path, png_files[idx])
+                img = Image.open(img_path).convert('RGB')
+                img = val_transform(image=np.array(img))['image']
+                imgs.append(img)
+            
+            batch = torch.stack(imgs).to(device)
+            features = model.backbone(batch) # (5, 4096)
+            
+            # Нормализуем для косинусного сходства
+            features = torch.nn.functional.normalize(features, p=2, dim=1)
+            
+            best_feat = features[0:1]    # (1, 4096)
+            others_feat = features[1:]   # (4, 4096)
+            
+            # 2. Сходство "Best vs All"
+            sims = torch.mm(best_feat, others_feat.t()).squeeze(0) # (4,)
+            
+            # 3. Формируем пары "Лидер vs Остальные"
+            for i, sim in enumerate(sims.cpu().numpy()):
+                idx_other = other_indices[i]
+                
+                # Если картинки почти идентичны — пропускаем
+                if build_chains and sim > sim_threshold:
+                    skipped_sim += 2
+                    continue
+                
+                self.pairs.append((group, best_idx, idx_other, 1))
+                if build_chains:
+                    # Зеркальная пара для обучения
+                    self.pairs.append((group, idx_other, best_idx, -1))
+            
+            # 4. Цепочка проигравших (только если строим цепочки)
+            if build_chains:
+                # Ранжируем проигравших по их близости к лучшему
+                sorted_sub_idx = torch.argsort(sims, descending=True).cpu().numpy()
+                ranked_others = [other_indices[i] for i in sorted_sub_idx]
+                
+                for i in range(len(ranked_others) - 1):
+                    idx_w = ranked_others[i]
+                    idx_l = ranked_others[i+1]
+                    
+                    # Проверка сходства между соседями в цепочке
+                    feat_w = features[1 + sorted_sub_idx[i]]
+                    feat_l = features[1 + sorted_sub_idx[i+1]]
+                    pair_sim = torch.dot(feat_w, feat_l).item()
+                    
+                    if pair_sim > sim_threshold:
+                        skipped_sim += 2
+                        continue
+                        
+                    self.pairs.append((group, idx_w, idx_l, 1))
+                    self.pairs.append((group, idx_l, idx_w, -1))
+
+        if build_chains:
+            random.shuffle(self.pairs)
+            
+        print(f"Создано пар: {len(self.pairs)}. Отсеяно слишком похожих: {skipped_sim}")
 
     def __len__(self):
         return len(self.pairs)
-   
+    
     def __getitem__(self, idx):
-        group, best_idx, other_idx, target = self.pairs[idx]
+        group, idx_a, idx_b, target = self.pairs[idx]
         group_path = os.path.join(self.root_dir, group)
         png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
-       
-        best_img_path = os.path.join(group_path, png_files[best_idx])
-        best_img = Image.open(best_img_path).convert('RGB')
-        best_img = np.array(best_img)
-        if np.any(np.isnan(best_img)) or np.any(np.isinf(best_img)):
-            print(f"Предупреждение: NaN или Inf в лучшем изображении {best_img_path}")
-            best_img = np.zeros_like(best_img)
-       
-        other_img_path = os.path.join(group_path, png_files[other_idx])
-        other_img = Image.open(other_img_path).convert('RGB')
-        other_img = np.array(other_img)
-        if np.any(np.isnan(other_img)) or np.any(np.isinf(other_img)):
-            print(f"Предупреждение: NaN или Inf в другом изображении {other_img_path}")
-            other_img = np.zeros_like(other_img)
-       
+        
+        img_a = np.array(Image.open(os.path.join(group_path, png_files[idx_a])).convert('RGB'))
+        img_b = np.array(Image.open(os.path.join(group_path, png_files[idx_b])).convert('RGB'))
+        
         if self.transform:
-            best_img = self.transform(image=best_img)['image']
-            other_img = self.transform(image=other_img)['image']
-       
-        return best_img, other_img, torch.tensor(target, dtype=torch.float32), group
+            img_a = self.transform(image=img_a)['image']
+            img_b = self.transform(image=img_b)['image']
+        
+        return img_a, img_b, torch.tensor(target, dtype=torch.float32), group
 
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
@@ -312,25 +365,50 @@ def evaluate(model, dataloader, device):
 
 def train():
     Path(CFG['retrain_dir']).mkdir(parents=True, exist_ok=True)
-   
-    # Загружаем группы из txt
+    
     train_txt = os.path.join(BASE_DIR, "train.txt")
     val_txt = os.path.join(BASE_DIR, "val.txt")
-   
+    
     train_groups = read_groups_from_txt(train_txt)
     val_groups = read_groups_from_txt(val_txt)
-   
+    
+    # Инициализируем модель сразу, так как она нужна для формирования цепочек (sim_threshold)
+    model = EnhancedAnimeRanker().to(CFG['device'])
+    
+    # 1. Основной тренировочный датасет
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
+    
+    # 2. Датасет для ретрейна (ищем все подпапки в retrain_dir)
+    retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
+                      if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
+    
+    retrain_ds = None
+    # if retrain_groups:
+    #     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform, groups=retrain_groups)
+    
+    # 3. Валидационный датасет
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
-    retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform)
-   
-    # ← Добавляем retrain данные (очень важно!)
-    # if len(retrain_ds) > 0:
-    #     train_ds = ConcatDataset([train_ds, retrain_ds])
-    #     print(f"Добавлено {len(retrain_ds)} пар из retrain-директории")
+    
+    # --- Формируем пары ---
+    print("\n--- Инициализация структуры датасета ---")
+    train_ds.initialize_pairs(model, CFG['device'], build_chains=True)
+    
+    if retrain_ds:
+        print(f"Обработка ретрейн-данных ({len(retrain_groups)} групп)...")
+        retrain_ds.initialize_pairs(model, CFG['device'], build_chains=True)
+        
+        # Объединяем основной трейн и ретрейн
+        final_train_ds = ConcatDataset([train_ds, retrain_ds])
+        print(f"Итого пар для обучения: {len(train_ds) + len(retrain_ds)}")
+    else:
+        final_train_ds = train_ds
+        print(f"Ретрейн данные не найдены. Итого пар: {len(train_ds)}")
+
+    val_ds.initialize_pairs(model, CFG['device'], build_chains=False)
+    print("----------------------------------------\n")
    
     train_loader = DataLoader(
-        train_ds,
+        final_train_ds,
         batch_size=CFG['batch_size'],
         shuffle=True,
         num_workers=CFG['num_workers'],
@@ -341,7 +419,7 @@ def train():
         drop_last=True,
         persistent_workers=True,
     )
-   
+
     val_loader = DataLoader(
         val_ds,
         batch_size=CFG['batch_size'],
@@ -352,8 +430,6 @@ def train():
         prefetch_factor=2,
         worker_init_fn=worker_init_fn
     )
-   
-    model = EnhancedAnimeRanker().to(CFG['device'])
    
     optimizer = torch.optim.AdamW([
         {'params': model.backbone.parameters(), 'lr': CFG['backbone_lr']},
