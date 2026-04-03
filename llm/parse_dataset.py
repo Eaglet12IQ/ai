@@ -20,6 +20,8 @@ def load_env():
 
 ENV_VARS = load_env()
 PROXY_STR = ENV_VARS.get('proxy_str', '')
+DANBOORU_LOGIN = ENV_VARS.get('DANBOORU_LOGIN', '')
+DANBOORU_API_KEY = ENV_VARS.get('DANBOORU_API_KEY', '')
 
 def load_tags_from_file(filename: str) -> Set[str]:
     try:
@@ -50,7 +52,7 @@ def fetch_danbooru_posts(tags_query: str, page: int, limit=100) -> list:
     url = f"https://danbooru.donmai.us/posts.json?tags={quote(tags_query)}&page={page}&limit={limit}"
     headers = {'User-Agent': 'DanbooruSequentialFetcher/0.5'}
     proxies = {"http": PROXY_STR, "https": PROXY_STR} if PROXY_STR else {}
-    auth = ('sunsiutaAI', 'm5vtFYic7ZH4vFM2jZ8gMGYs')
+    auth = (DANBOORU_LOGIN, DANBOORU_API_KEY)
     max_attempts = 4
     for attempt in range(1, max_attempts + 1):
         try:

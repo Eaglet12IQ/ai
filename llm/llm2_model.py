@@ -58,62 +58,72 @@ train_seqs, val_seqs = train_test_split(indexed_sequences, test_size=0.1, random
 
 MAX_TAGS = 42  # максимальное количество тегов, без EOS
 
+def augment_sequence(
+    seq: list,                   
+    max_tags: int = 42,
+    mix_prob: float = 0.0,
+    mix_alpha: float = 0.4,
+    mix_source: list = None,     
+    shuffle: bool = True
+) -> list:
+    """
+    Аугментирует одну последовательность тегов.
+    Возвращает список индексов (без EOS).
+    """
+    tags = seq[:]  
+    
+    if mix_prob > 0 and mix_source and random.random() < mix_prob:
+        seq_b = random.choice(mix_source)
+        lam = np.random.beta(mix_alpha, mix_alpha) if mix_alpha > 0 else 0.5
+        n_take = max(1, int(len(seq_b) * lam))
+        
+        space_left = max_tags - len(tags)
+        if space_left > 0:
+            added = random.sample(seq_b, min(n_take, len(seq_b), space_left))
+            combined = list(dict.fromkeys(tags + added))
+            tags = combined[:max_tags]
+
+    if shuffle:
+        random.shuffle(tags)
+
+    return tags
+
 class TagDataset(Dataset):
     def __init__(
         self,
-        sequences,
+        sequences,                   
         shuffle_tags=True,
-        mix_prob=0.0,              # по умолчанию выключен
+        mix_prob=0.0,
         mix_alpha=0.4,
-        mix_source_sequences=None  # откуда брать примеры для микса (должны быть ТОЛЬКО train)
+        mix_source_sequences=None,    
+        max_tags=42
     ):
         self.sequences = sequences
         self.shuffle_tags = shuffle_tags
         self.mix_prob = mix_prob
         self.mix_alpha = mix_alpha
-        self.mix_source = mix_source_sequences if mix_source_sequences is not None else sequences
-
-    def mix_tags(self, seq_a):
-        # Если не делаем микс, просто обрезаем до MAX_TAGS
-        if random.random() >= self.mix_prob or not self.mix_source:
-            return seq_a[:MAX_TAGS]
-
-        # Берём случайную последовательность для микса
-        seq_b = random.choice(self.mix_source)[:-1]  # без EOS
-
-        # Доля тегов для добавления
-        lam = np.random.beta(self.mix_alpha, self.mix_alpha) if self.mix_alpha > 0 else 0.5
-        n_take = max(1, int(len(seq_b) * lam))
-
-        # Берём только столько, сколько помещается
-        space_left = MAX_TAGS - len(seq_a)
-        added = random.sample(seq_b, min(n_take, len(seq_b), space_left))
-
-        # Объединяем с сохранением порядка и убираем дубликаты
-        combined = list(dict.fromkeys(seq_a + added))
-
-        # На всякий случай обрезаем до MAX_TAGS
-        combined = combined[:MAX_TAGS]
-
-        return combined
+        self.mix_source = mix_source_sequences
+        self.max_tags = max_tags
 
     def __getitem__(self, idx):
-        seq = self.sequences[idx][:]  # копия с EOS
-        tags = seq[:-1]
+        full_seq = self.sequences[idx][:]
+        tags = full_seq[:-1]                
 
-        # Только микс (dropout убрали)
-        tags = self.mix_tags(tags)
+        augmented_tags = augment_sequence(
+            seq=tags,
+            max_tags=self.max_tags,
+            mix_prob=self.mix_prob,
+            mix_alpha=self.mix_alpha,
+            mix_source=self.mix_source,
+            shuffle=self.shuffle_tags
+        )
 
-        if self.shuffle_tags:
-            random.shuffle(tags)
-
-        shuffled_seq = tags + [eos_idx]
-
+        shuffled_seq = augmented_tags + [eos_idx]
         input_seq = shuffled_seq[:-1]
         target_seq = shuffled_seq[1:]
 
         return torch.tensor(input_seq), torch.tensor(target_seq)
-    
+
     def __len__(self):
         return len(self.sequences)
 
@@ -133,14 +143,16 @@ train_dataset = TagDataset(
     shuffle_tags=True,
     mix_prob=0.25,               # ← только здесь включаем
     mix_alpha=0.4,
-    mix_source_sequences=train_seqs   # ← САМОЕ ВАЖНОЕ ИСПРАВЛЕНИЕ!
+    mix_source_sequences=train_seqs,
+    max_tags=42  
 )
 
 val_dataset = TagDataset(
     sequences=val_seqs,
     shuffle_tags=False,
     mix_prob=0.0,
-    mix_source_sequences=None     # или вообще не передавать
+    mix_source_sequences=None,
+    max_tags=42
 )
 
 # DataLoader'ы остаются такими же
