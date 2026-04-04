@@ -382,9 +382,10 @@ def train():
     retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
                       if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
     
+    
     retrain_ds = None
-    # if retrain_groups:
-    #     retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform, groups=retrain_groups)
+    if retrain_groups:
+        retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform, groups=retrain_groups)
     
     # 3. Валидационный датасет
     val_ds = AnimeGroupDataset(CFG['dataset_path'], transform=val_transform, groups=val_groups)
@@ -393,7 +394,7 @@ def train():
     print("\n--- Инициализация структуры датасета ---")
     train_ds.initialize_pairs(model, CFG['device'], build_chains=True)
     
-    if retrain_ds:
+    if retrain_groups:
         print(f"Обработка ретрейн-данных ({len(retrain_groups)} групп)...")
         retrain_ds.initialize_pairs(model, CFG['device'], build_chains=True)
         
