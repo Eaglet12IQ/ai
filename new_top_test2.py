@@ -56,7 +56,7 @@ def worker_init_fn(worker_id):
     np.random.seed(seed + worker_id)
 
 CFG = {
-    'img_size': 360,
+    'img_size': 224,
     'batch_size': 32,
     'num_workers': 6,
     'grad_clip': 1.0,
@@ -73,7 +73,7 @@ CFG = {
 
 # Аугментации
 train_transform = A.Compose([
-    A.RandomResizedCrop(size=(224, 224), scale=(0.85, 1.0), ratio=(0.75, 1.35)),
+    A.RandomResizedCrop(size=(CFG['img_size'], CFG['img_size']), scale=(0.85, 1.0), ratio=(0.75, 1.35)),
     A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05, p=0.5),
     A.CoarseDropout(
         num_holes_range=(1, 3),
@@ -92,8 +92,8 @@ train_transform = A.Compose([
 
 # Исправленный val_transform (убран баг с искажением aspect ratio)
 val_transform = A.Compose([
-    A.SmallestMaxSize(max_size=CFG['img_size']),   # сохраняем пропорции
-    A.CenterCrop(CFG['img_size'], CFG['img_size']),
+    A.SmallestMaxSize(max_size=360),   # сохраняем пропорции
+    A.CenterCrop(360, 360),
     A.Normalize(mean=[0.54288839, 0.52424041, 0.52013308],
                 std=[0.32821858, 0.31147094, 0.30761928]),
     ToTensorV2()
@@ -379,11 +379,10 @@ def train():
     train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     
     # 2. Датасет для ретрейна (ищем все подпапки в retrain_dir)
-    retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
-                      if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
+    retrain_groups = None
+    # retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
+    #                   if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
     
-    
-    retrain_ds = None
     if retrain_groups:
         retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform, groups=retrain_groups)
     
