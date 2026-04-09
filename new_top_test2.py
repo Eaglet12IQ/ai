@@ -56,8 +56,8 @@ def worker_init_fn(worker_id):
     np.random.seed(seed + worker_id)
 
 CFG = {
-    'img_size': 224,
-    'batch_size': 32,
+    'img_size': 360,
+    'batch_size': 16,
     'num_workers': 6,
     'grad_clip': 1.0,
     'weight_decay': 0.01,
@@ -380,8 +380,8 @@ def train():
     
     # 2. Датасет для ретрейна (ищем все подпапки в retrain_dir)
     retrain_groups = None
-    # retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
-    #                   if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
+    retrain_groups = [d for d in os.listdir(CFG['retrain_dir']) 
+                      if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
     
     if retrain_groups:
         retrain_ds = AnimeGroupDataset(CFG['retrain_dir'], transform=train_transform, groups=retrain_groups)
@@ -445,7 +445,7 @@ def train():
     best_ndcg = 0
     best_top1 = 0
     best_swa_ndcg = 0
-    patience = 20
+    patience = 10
     epochs_without_improvement = 0
    
     history = {
