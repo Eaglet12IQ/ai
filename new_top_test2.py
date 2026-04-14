@@ -56,8 +56,8 @@ def worker_init_fn(worker_id):
     np.random.seed(seed + worker_id)
 
 CFG = {
-    'img_size': 360,
-    'batch_size': 16,
+    'img_size': 256,
+    'batch_size': 32,
     'num_workers': 6,
     'grad_clip': 1.0,
     'weight_decay': 0.01,
@@ -376,7 +376,7 @@ def train():
     model = EnhancedAnimeRanker().to(CFG['device'])
     
     # 1. Основной тренировочный датасет
-    train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
+    # train_ds = AnimeGroupDataset(CFG['dataset_path'], transform=train_transform, groups=train_groups)
     
     # 2. Датасет для ретрейна (ищем все подпапки в retrain_dir)
     retrain_groups = None
@@ -391,15 +391,17 @@ def train():
     
     # --- Формируем пары ---
     print("\n--- Инициализация структуры датасета ---")
-    train_ds.initialize_pairs(model, CFG['device'], build_chains=True)
+    # train_ds.initialize_pairs(model, CFG['device'], build_chains=True)
     
     if retrain_groups:
         print(f"Обработка ретрейн-данных ({len(retrain_groups)} групп)...")
         retrain_ds.initialize_pairs(model, CFG['device'], build_chains=True)
         
         # Объединяем основной трейн и ретрейн
-        final_train_ds = ConcatDataset([train_ds, retrain_ds])
-        print(f"Итого пар для обучения: {len(train_ds) + len(retrain_ds)}")
+        # final_train_ds = ConcatDataset([train_ds, retrain_ds])
+        final_train_ds = retrain_ds
+        # print(f"Итого пар для обучения: {len(train_ds) + len(retrain_ds)}")
+        print(f"Итого пар для обучения: {len(retrain_ds)}")
     else:
         final_train_ds = train_ds
         print(f"Ретрейн данные не найдены. Итого пар: {len(train_ds)}")

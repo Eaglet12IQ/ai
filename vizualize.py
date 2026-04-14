@@ -13,7 +13,7 @@ import albumentations as A
 # ====================== НАСТРОЙКИ ======================
 CFG = {
     'dataset_path': "dataset",                    # путь к папке с группами
-    'img_size': 224,
+    'img_size': 360,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'batch_size': 64,
     'random_state': 42,
