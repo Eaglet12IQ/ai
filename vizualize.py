@@ -152,7 +152,7 @@ if __name__ == "__main__":
         edgecolors='none'
     )
     
-    plt.title('UMAP проекция эмбеддингов изображений\nКрасный = лучшее изображение по твоему вкусу', 
+    plt.title('UMAP проекция эмбеддингов изображений', 
               fontsize=16, pad=20)
     plt.xlabel('UMAP 1')
     plt.ylabel('UMAP 2')
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     # Легенда
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], marker='o', color='w', label='Лучшее изображение',
+        Line2D([0], [0], marker='o', color='w', label='Лучшие изображения',
                markerfacecolor='#d62728', markersize=10),
         Line2D([0], [0], marker='o', color='w', label='Остальные изображения',
                markerfacecolor='#1f77b4', markersize=10)

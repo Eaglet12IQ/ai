@@ -200,7 +200,7 @@ if __name__ == "__main__":
 
     # ====================== ВИЗУАЛИЗАЦИЯ (ТОЛЬКО ПЕРВАЯ ДИАГРАММА) ======================
     plt.figure(figsize=(12, 8))
-    sns.histplot(similarities, bins=80, kde=True, color='#1f77b4')
+    sns.histplot(similarities, bins=80, kde=False, color='#1f77b4')
     plt.axvline(similarities.mean(), color='red', linestyle='--', 
                 label=f'Среднее = {similarities.mean():.4f}')
     plt.title('Распределение косинусного сходства оригинал ↔ аугментация', fontsize=16)
