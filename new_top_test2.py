@@ -70,7 +70,7 @@ def get_transforms():
         A.GaussianBlur(blur_limit=(3, 3), p=0.1),
         A.Normalize(mean=Config.NORMALIZE_MEAN, std=Config.NORMALIZE_STD),
         ToTensorV2()
-    ])
+    ], seed=Config.SEED)
 
     val_transform = A.Compose([
         A.SmallestMaxSize(max_size=360),
