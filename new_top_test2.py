@@ -1,108 +1,114 @@
 import os
 import random
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-from PIL import Image
-import numpy as np
-from pathlib import Path
-from sklearn.metrics import ndcg_score
-from tqdm import tqdm
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.amp import GradScaler
 
-# ====================== ФИКСАЦИЯ СИДА ======================
-seed = 49
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from PIL import Image
+from sklearn.metrics import ndcg_score
+from tqdm import tqdm
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ====================== CONFIG ======================
+class Config:
+    SEED = 49
+    IMG_SIZE = 256
+    BATCH_SIZE = 32
+    NUM_WORKERS = 6
+    GRAD_CLIP = 1.0
+    WEIGHT_DECAY = 0.01
 
-# ====================== КОНФИГУРАЦИЯ ======================
-CFG = {
-    'img_size': 256,
-    'batch_size': 32,
-    'num_workers': 6,
-    'grad_clip': 1.0,
-    'weight_decay': 0.01,
-    'head_lr': 1e-4,
-    'backbone_lr': 5e-6,
-    'min_lr': 5e-7,
-    'epochs': 150,
-    'patience': 10,
-    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-    'dataset_path': os.path.join(BASE_DIR, "dataset"),
-    'retrain_dir': os.path.join(BASE_DIR, "dataset", "retrain"),
-    
-    # === ФЛАГ ВЫБОРА ДАТАСЕТА ===
-    'train_mode': 'synth',   # 'manual' | 'synth' | 'both'
-}
+    HEAD_LR = 1e-4
+    BACKBONE_LR = 5e-6
+    MIN_LR = 5e-7
+    EPOCHS = 150
+    PATIENCE = 10
 
-# ====================== АУГМЕНТАЦИИ ======================
-train_transform = A.Compose([
-    A.RandomResizedCrop(size=(CFG['img_size'], CFG['img_size']), scale=(0.85, 1.0), ratio=(0.75, 1.35)),
-    A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05, p=0.5),
-    A.CoarseDropout(
-        num_holes_range=(1, 3),
-        hole_height_range=(0.03, 0.07),
-        hole_width_range=(0.03, 0.07),
-        fill=(0.54288839*255, 0.52424041*255, 0.52013308*255),
-        p=0.4
-    ),
-    A.RandomRotate90(p=0.5),
-    A.HorizontalFlip(p=0.5),
-    A.RandomGamma(gamma_limit=(90, 110), p=0.2),
-    A.GaussianBlur(blur_limit=(3, 3), p=0.1),
-    A.Normalize(mean=[0.54288839, 0.52424041, 0.52013308],
-                std=[0.32821858, 0.31147094, 0.30761928]),
-    ToTensorV2()
-], seed=seed)
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-val_transform = A.Compose([
-    A.SmallestMaxSize(max_size=360),
-    A.CenterCrop(360, 360),
-    A.Normalize(mean=[0.54288839, 0.52424041, 0.52013308],
-                std=[0.32821858, 0.31147094, 0.30761928]),
-    ToTensorV2()
-])
+    DATASET_PATH = "dataset"
+    RETRAIN_DIR = os.path.join("dataset", "retrain")
+
+    TRAIN_MODE = 'synth'   # 'manual' | 'synth' | 'both'
+
+    NORMALIZE_MEAN = [0.54288839, 0.52424041, 0.52013308]
+    NORMALIZE_STD = [0.32821858, 0.31147094, 0.30761928]
 
 
-def worker_init_fn(worker_id):
-    np.random.seed(seed + worker_id)
+def set_seed(seed: int = Config.SEED):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# ====================== TRANSFORMS ======================
+def get_transforms():
+    train_transform = A.Compose([
+        A.RandomResizedCrop(size=(Config.IMG_SIZE, Config.IMG_SIZE), scale=(0.85, 1.0), ratio=(0.75, 1.35)),
+        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05, p=0.5),
+        A.CoarseDropout(
+            num_holes_range=(1, 3),
+            hole_height_range=(0.03, 0.07),
+            hole_width_range=(0.03, 0.07),
+            fill=tuple(int(x * 255) for x in Config.NORMALIZE_MEAN),
+            p=0.4
+        ),
+        A.RandomRotate90(p=0.5),
+        A.HorizontalFlip(p=0.5),
+        A.RandomGamma(gamma_limit=(90, 110), p=0.2),
+        A.GaussianBlur(blur_limit=(3, 3), p=0.1),
+        A.Normalize(mean=Config.NORMALIZE_MEAN, std=Config.NORMALIZE_STD),
+        ToTensorV2()
+    ])
+
+    val_transform = A.Compose([
+        A.SmallestMaxSize(max_size=360),
+        A.CenterCrop(360, 360),
+        A.Normalize(mean=Config.NORMALIZE_MEAN, std=Config.NORMALIZE_STD),
+        ToTensorV2()
+    ])
+
+    return train_transform, val_transform
 
 
 # ====================== DATASET ======================
 class AnimeGroupDataset(Dataset):
-    def __init__(self, root_dir, transform=None, groups=None):
+    def __init__(self, root_dir: str, transform=None, groups: List[str] = None):
         self.root_dir = root_dir
         self.transform = transform
         self.groups = groups or [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
-        self.pairs = []
+        self.pairs: List[Tuple[str, int, int, int]] = []
 
     @torch.no_grad()
-    def initialize_pairs(self, model, device, build_chains=True, sim_threshold=0.97):
+    def initialize_pairs(self, model: nn.Module, device: torch.device, 
+                        build_chains: bool = True, sim_threshold: float = 0.97):
         model.eval()
-        self.pairs = []
-        desc = "Формируем train пары" if build_chains else "Формируем val пары"
+        self.pairs.clear()
         skipped_sim = 0
+        desc = "Формируем train пары" if build_chains else "Формируем val пары"
 
         for group in tqdm(self.groups, desc=desc):
             group_path = os.path.join(self.root_dir, group)
             png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
-            best_txt = os.path.join(group_path, 'best.txt')
 
+            best_txt = os.path.join(group_path, 'best.txt')
             if not os.path.exists(best_txt) or len(png_files) < 5:
                 continue
 
             with open(best_txt, 'r') as f:
                 best_file = f.read().strip()
+
             if best_file not in png_files:
                 continue
 
@@ -121,7 +127,7 @@ class AnimeGroupDataset(Dataset):
             others_feat = features[1:]
             sims = torch.mm(best_feat, others_feat.t()).squeeze(0)
 
-            # Пары лидер vs остальные
+            # Пары: лучший vs остальные
             for i, sim in enumerate(sims.cpu().numpy()):
                 idx_other = other_indices[i]
                 if build_chains and sim > sim_threshold:
@@ -158,7 +164,7 @@ class AnimeGroupDataset(Dataset):
     def __len__(self):
         return len(self.pairs)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         group, idx_a, idx_b, target = self.pairs[idx]
         group_path = os.path.join(self.root_dir, group)
         png_files = sorted([f for f in os.listdir(group_path) if f.endswith('.png')])
@@ -173,14 +179,15 @@ class AnimeGroupDataset(Dataset):
         return img_a, img_b, torch.tensor(target, dtype=torch.float32), group
 
 
-# ====================== МОДЕЛЬ ======================
+# ====================== MODEL ======================
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
         super().__init__()
         from danbooru_resnet import resnet50 as danbooru_resnet50
-        weights_path = os.path.join(BASE_DIR, "resnet50danbooru.pth")
+
+        weights_path = "resnet50danbooru.pth"
         self.backbone = danbooru_resnet50(pretrained=False, top_n=6000)
-        state_dict = torch.load(weights_path, map_location=CFG['device'])
+        state_dict = torch.load(weights_path, map_location=Config.DEVICE, weights_only=True)
         self.backbone.load_state_dict(state_dict)
 
         self.backbone = nn.Sequential(
@@ -203,7 +210,7 @@ class EnhancedAnimeRanker(nn.Module):
             nn.Linear(256, 1)
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size = x.size(0)
         num_images = x.size(1) if x.dim() == 5 else 1
 
@@ -236,15 +243,15 @@ class SoftFocalPairwiseLoss(nn.Module):
         return loss.mean()
 
 
-# ====================== ВСПОМОГАТЕЛЬНЫЕ ======================
-def read_groups_from_txt(file_path):
+# ====================== UTILS ======================
+def read_groups_from_txt(file_path: str) -> List[str]:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Файл {file_path} не найден")
     with open(file_path, "r") as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
 
-def my_collate_fn(batch):
+def collate_fn(batch):
     best_images = torch.stack([item[0] for item in batch])
     other_images = torch.stack([item[1] for item in batch])
     targets = torch.stack([item[2] for item in batch])
@@ -252,73 +259,76 @@ def my_collate_fn(batch):
     return best_images, other_images, targets, group_names
 
 
-def evaluate(model, dataloader, device):
+def worker_init_fn(worker_id):
+    np.random.seed(Config.SEED + worker_id)
+
+
+# ====================== EVALUATION ======================
+@torch.no_grad()
+def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device):
     model.eval()
-    top1_correct = 0
-    top2_correct = 0
-    ndcg_scores = []
-    val_loss_sum = 0.0
-    val_loss_count = 0
-    processed_groups = 0
     criterion = SoftFocalPairwiseLoss()
 
-    with torch.no_grad():
-        group_images_dict = {}
-        for best_images, other_images, targets, group_names in dataloader:
-            best_images = best_images.to(device, non_blocking=True)
-            other_images = other_images.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
+    top1_correct = top2_correct = 0
+    ndcg_scores = []
+    val_loss_sum = val_loss_count = processed_groups = 0
+    group_images_dict: Dict[str, List[torch.Tensor]] = {}
 
-            scores_best = model(best_images.unsqueeze(1)).squeeze(-1)
-            scores_other = model(other_images.unsqueeze(1)).squeeze(-1)
+    for best_images, other_images, targets, group_names in tqdm(dataloader, desc="Evaluation", leave=False):
+        best_images = best_images.to(device, non_blocking=True)
+        other_images = other_images.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
 
-            batch_loss = criterion(scores_best, scores_other, targets)
-            val_loss_sum += batch_loss.item() * best_images.size(0)
-            val_loss_count += best_images.size(0)
+        scores_best = model(best_images.unsqueeze(1)).squeeze(-1)
+        scores_other = model(other_images.unsqueeze(1)).squeeze(-1)
 
-            for i in range(best_images.size(0)):
-                gid = group_names[i]
-                if gid not in group_images_dict:
-                    group_images_dict[gid] = []
-                group_images_dict[gid].append(best_images[i:i+1].cpu())
-                group_images_dict[gid].append(other_images[i:i+1].cpu())
+        batch_loss = criterion(scores_best, scores_other, targets)
+        val_loss_sum += batch_loss.item() * best_images.size(0)
+        val_loss_count += best_images.size(0)
 
-        for group_id, images_list in group_images_dict.items():
-            if len(images_list) < 8:
-                continue
+        for i, gid in enumerate(group_names):
+            if gid not in group_images_dict:
+                group_images_dict[gid] = []
+            group_images_dict[gid].append(best_images[i:i+1].cpu())
+            group_images_dict[gid].append(other_images[i:i+1].cpu())
 
-            unique_imgs = []
-            seen = set()
-            for img_tensor in images_list:
-                img_hash = hash(img_tensor.numpy().tobytes())
-                if img_hash not in seen:
-                    seen.add(img_hash)
-                    unique_imgs.append(img_tensor)
+    # Оценка по группам
+    for group_id, images_list in group_images_dict.items():
+        if len(images_list) < 8:
+            continue
 
-            if len(unique_imgs) != 5:
-                continue
+        unique_imgs = []
+        seen = set()
+        for img_tensor in images_list:
+            img_hash = hash(img_tensor.numpy().tobytes())
+            if img_hash not in seen:
+                seen.add(img_hash)
+                unique_imgs.append(img_tensor)
 
-            group_tensor = torch.cat(unique_imgs[:5], dim=0).to(device)
-            scores = model(group_tensor.unsqueeze(1)).squeeze(-1)
+        if len(unique_imgs) != 5:
+            continue
 
-            true_best_idx = 0
-            ranked_indices = torch.argsort(scores, descending=True)
+        group_tensor = torch.cat(unique_imgs[:5], dim=0).to(device)
+        scores = model(group_tensor.unsqueeze(1)).squeeze(-1)
 
-            if ranked_indices[0] == true_best_idx:
-                top1_correct += 1
-            if true_best_idx in ranked_indices[:2]:
-                top2_correct += 1
+        true_best_idx = 0
+        ranked_indices = torch.argsort(scores, descending=True)
 
-            true_relevance = np.zeros((1, 5), dtype=np.float32)
-            true_relevance[0, true_best_idx] = 1.0
+        if ranked_indices[0] == true_best_idx:
+            top1_correct += 1
+        if true_best_idx in ranked_indices[:2]:
+            top2_correct += 1
 
-            try:
-                batch_ndcg = ndcg_score(true_relevance, scores.unsqueeze(0).cpu().numpy(), k=5)
-                ndcg_scores.append(batch_ndcg)
-            except Exception as e:
-                print(f"Ошибка NDCG для группы {group_id}: {e}")
+        true_relevance = np.zeros((1, 5), dtype=np.float32)
+        true_relevance[0, true_best_idx] = 1.0
 
-            processed_groups += 1
+        try:
+            ndcg = ndcg_score(true_relevance, scores.unsqueeze(0).cpu().numpy(), k=5)
+            ndcg_scores.append(ndcg)
+        except Exception as e:
+            print(f"Ошибка NDCG для группы {group_id}: {e}")
+
+        processed_groups += 1
 
     mean_ndcg = np.mean(ndcg_scores) if ndcg_scores else 0.0
     avg_val_loss = val_loss_sum / val_loss_count if val_loss_count > 0 else 0.0
@@ -332,93 +342,83 @@ def evaluate(model, dataloader, device):
     }
 
 
-# ====================== TRAIN ======================
+# ====================== TRAINING ======================
 def train():
-    Path(CFG['retrain_dir']).mkdir(parents=True, exist_ok=True)
-    val_groups = read_groups_from_txt(os.path.join(BASE_DIR, "val.txt"))
+    set_seed()
+    print(f"Using device: {Config.DEVICE} | Mode: {Config.TRAIN_MODE.upper()}\n")
 
-    print(f"Режим обучения: **{CFG['train_mode'].upper()}**\n")
+    Path(Config.RETRAIN_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Создаём модель
-    model = EnhancedAnimeRanker().to(CFG['device'])
+    global val_transform   # нужно для initialize_pairs
+    train_transform, val_transform = get_transforms()
 
-    # ==================== Создание датасетов ====================
-    if CFG['train_mode'] == 'manual':
-        groups = read_groups_from_txt(os.path.join(BASE_DIR, "train.txt"))
-        train_dataset = AnimeGroupDataset(CFG['dataset_path'], train_transform, groups)
-        print(f"Используется только ручной датасет: {len(groups)} групп")
-        print("\n--- Формируем пары для ручного датасета ---")
-        train_dataset.initialize_pairs(model, CFG['device'], build_chains=True)
+    model = EnhancedAnimeRanker().to(Config.DEVICE)
 
-    elif CFG['train_mode'] == 'synth':
-        groups = [d for d in os.listdir(CFG['retrain_dir']) if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
+    # ==================== Datasets ====================
+    if Config.TRAIN_MODE == 'manual':
+        groups = read_groups_from_txt("train.txt")
+        train_dataset = AnimeGroupDataset(Config.DATASET_PATH, train_transform, groups)
+        train_dataset.initialize_pairs(model, Config.DEVICE, build_chains=True)
+
+    elif Config.TRAIN_MODE == 'synth':
+        groups = [d for d in os.listdir(Config.RETRAIN_DIR) if os.path.isdir(os.path.join(Config.RETRAIN_DIR, d))]
         if not groups:
             raise FileNotFoundError("retrain папка пуста!")
-        train_dataset = AnimeGroupDataset(CFG['retrain_dir'], train_transform, groups)
-        print(f"Используется только синтетический датасет: {len(groups)} групп")
-        print("\n--- Формируем пары для синтетического датасета ---")
-        train_dataset.initialize_pairs(model, CFG['device'], build_chains=True)
+        train_dataset = AnimeGroupDataset(Config.RETRAIN_DIR, train_transform, groups)
+        train_dataset.initialize_pairs(model, Config.DEVICE, build_chains=True)
 
-    elif CFG['train_mode'] == 'both':
-        manual_groups = read_groups_from_txt(os.path.join(BASE_DIR, "train.txt"))
-        synth_groups = [d for d in os.listdir(CFG['retrain_dir']) if os.path.isdir(os.path.join(CFG['retrain_dir'], d))]
+    elif Config.TRAIN_MODE == 'both':
+        manual_groups = read_groups_from_txt("train.txt")
+        synth_groups = [d for d in os.listdir(Config.RETRAIN_DIR) if os.path.isdir(os.path.join(Config.RETRAIN_DIR, d))]
 
-        manual_ds = AnimeGroupDataset(CFG['dataset_path'], train_transform, manual_groups)
-        synth_ds = AnimeGroupDataset(CFG['retrain_dir'], train_transform, synth_groups)
+        manual_ds = AnimeGroupDataset(Config.DATASET_PATH, train_transform, manual_groups)
+        synth_ds = AnimeGroupDataset(Config.RETRAIN_DIR, train_transform, synth_groups)
 
-        print(f"Найдено групп: ручных — {len(manual_groups)}, синтетических — {len(synth_groups)}")
-
-        print("\n--- Формируем пары для ручного датасета ---")
-        manual_ds.initialize_pairs(model, CFG['device'], build_chains=True)
-
-        print("\n--- Формируем пары для синтетического датасета ---")
-        synth_ds.initialize_pairs(model, CFG['device'], build_chains=True)
+        manual_ds.initialize_pairs(model, Config.DEVICE, build_chains=True)
+        synth_ds.initialize_pairs(model, Config.DEVICE, build_chains=True)
 
         train_dataset = ConcatDataset([manual_ds, synth_ds])
-        print(f"\nОбъединено: {len(manual_ds)} + {len(synth_ds)} = {len(train_dataset)} пар")
-
+        print(f"Объединено: {len(manual_ds)} + {len(synth_ds)} = {len(train_dataset)} пар")
     else:
         raise ValueError("train_mode должен быть 'manual', 'synth' или 'both'")
 
-    # Валидационный датасет
-    val_dataset = AnimeGroupDataset(CFG['dataset_path'], val_transform, val_groups)
-    print("\n--- Формируем пары для валидации ---")
-    val_dataset.initialize_pairs(model, CFG['device'], build_chains=False)
-    print("----------------------------------------\n")
+    # Validation dataset
+    val_groups = read_groups_from_txt("val.txt")
+    val_dataset = AnimeGroupDataset(Config.DATASET_PATH, val_transform, val_groups)
+    val_dataset.initialize_pairs(model, Config.DEVICE, build_chains=False)
 
-    # ==================== DataLoader ====================
+    # ==================== DataLoaders ====================
     train_loader = DataLoader(
         train_dataset,
-        batch_size=CFG['batch_size'],
+        batch_size=Config.BATCH_SIZE,
         shuffle=True,
-        num_workers=CFG['num_workers'],
-        collate_fn=my_collate_fn,
+        num_workers=Config.NUM_WORKERS,
+        collate_fn=collate_fn,
         pin_memory=True,
         prefetch_factor=4,
         worker_init_fn=worker_init_fn,
         drop_last=True,
-        persistent_workers=True,
+        persistent_workers=True
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=CFG['batch_size'],
+        batch_size=Config.BATCH_SIZE,
         shuffle=False,
-        num_workers=CFG['num_workers'],
-        collate_fn=my_collate_fn,
+        num_workers=Config.NUM_WORKERS,
+        collate_fn=collate_fn,
         pin_memory=True,
         prefetch_factor=2,
-        worker_init_fn=worker_init_fn,
-        persistent_workers=False,
+        persistent_workers=False
     )
 
-    # ==================== Обучение ====================
+    # ==================== Optimizer & Scheduler ====================
     optimizer = torch.optim.AdamW([
-        {'params': model.backbone.parameters(), 'lr': CFG['backbone_lr']},
-        {'params': model.rank_head.parameters(), 'lr': CFG['head_lr']}
-    ], weight_decay=CFG['weight_decay'])
+        {'params': model.backbone.parameters(), 'lr': Config.BACKBONE_LR},
+        {'params': model.rank_head.parameters(), 'lr': Config.HEAD_LR}
+    ], weight_decay=Config.WEIGHT_DECAY)
 
-    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=CFG['min_lr'])
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=30, T_mult=1, eta_min=Config.MIN_LR)
     criterion = SoftFocalPairwiseLoss()
     scaler = GradScaler('cuda')
 
@@ -428,29 +428,30 @@ def train():
 
     print("Начало обучения...\n")
 
-    for epoch in range(CFG['epochs']):
+    for epoch in range(Config.EPOCHS):
         model.train()
         epoch_loss = 0.0
         epoch_head_grad_norm = 0.0
         epoch_backbone_grad_norm = 0.0
 
-        progress_bar = tqdm(train_loader, desc=f'Эпоха {epoch+1}/{CFG["epochs"]}')
+        progress_bar = tqdm(train_loader, desc=f'Эпоха {epoch+1}/{Config.EPOCHS}')
 
         for best_images, other_images, targets, _ in progress_bar:
-            best_images = best_images.to(CFG['device'], non_blocking=True)
-            other_images = other_images.to(CFG['device'], non_blocking=True)
-            targets = targets.to(CFG['device'], non_blocking=True)
+            best_images = best_images.to(Config.DEVICE, non_blocking=True)
+            other_images = other_images.to(Config.DEVICE, non_blocking=True)
+            targets = targets.to(Config.DEVICE, non_blocking=True)
 
+            # Forward + Loss (без autocast)
             scores_best = model(best_images.unsqueeze(1))
             scores_other = model(other_images.unsqueeze(1))
-
             loss = criterion(scores_best, scores_other, targets)
 
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
 
-            head_norm = torch.nn.utils.clip_grad_norm_(model.rank_head.parameters(), CFG['grad_clip'])
-            backbone_norm = torch.nn.utils.clip_grad_norm_(model.backbone.parameters(), CFG['grad_clip'])
+            # Градиентный клиппинг + сбор норм
+            scaler.unscale_(optimizer)
+            head_norm = torch.nn.utils.clip_grad_norm_(model.rank_head.parameters(), Config.GRAD_CLIP)
+            backbone_norm = torch.nn.utils.clip_grad_norm_(model.backbone.parameters(), Config.GRAD_CLIP)
 
             scaler.step(optimizer)
             scaler.update()
@@ -466,21 +467,19 @@ def train():
         avg_head_norm = epoch_head_grad_norm / len(train_loader)
         avg_backbone_norm = epoch_backbone_grad_norm / len(train_loader)
 
-        val_metrics = evaluate(model, val_loader, CFG['device'])
+        val_metrics = evaluate(model, val_loader, Config.DEVICE)
 
-        improved = False
-        if val_metrics['ndcg'] > best_ndcg:
+        improved = val_metrics['ndcg'] > best_ndcg
+        if improved:
             best_ndcg = val_metrics['ndcg']
             best_top1 = val_metrics['top1']
             epochs_without_improvement = 0
             torch.save(model.state_dict(), 'best_model.pth')
-            improved = True
             print(f"→ НОВАЯ ЛУЧШАЯ МОДЕЛЬ сохранена! NDCG: {best_ndcg:.4f} | Top-1: {best_top1:.4f}")
-
         else:
             epochs_without_improvement += 1
 
-        print(f"\nЭпоха {epoch+1}/{CFG['epochs']} завершена")
+        print(f"\nЭпоха {epoch+1}/{Config.EPOCHS} завершена")
         print(f"Train Loss         : {avg_train_loss:.4f}")
         print(f"Val Loss           : {val_metrics['val_loss']:.4f}")
         print(f"Val NDCG           : {val_metrics['ndcg']:.4f} {'↑' if improved else ''}")
@@ -488,16 +487,16 @@ def train():
         print(f"Val Top-2          : {val_metrics['top2']:.4f}")
         print(f"Head Grad Norm     : {avg_head_norm:.4f}")
         print(f"Backbone Grad Norm : {avg_backbone_norm:.4f}")
-        print("-" * 80)
+        print("-" * 90)
 
-        if epochs_without_improvement >= CFG['patience']:
+        if epochs_without_improvement >= Config.PATIENCE:
             print(f"Ранняя остановка на эпохе {epoch+1}")
             break
 
         scheduler.step()
 
     torch.save(model.state_dict(), 'final_model.pth')
-    print(f"\nОбучение завершено! Лучший NDCG на валидации: {best_ndcg:.4f}")
+    print(f"\nОбучение завершено! Лучший NDCG: {best_ndcg:.4f}")
 
 
 if __name__ == '__main__':
