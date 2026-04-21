@@ -16,7 +16,6 @@ from PIL import Image
 from sklearn.metrics import ndcg_score
 from tqdm import tqdm
 
-# ====================== CONFIG ======================
 class Config:
     SEED = 49
     IMG_SIZE = 256
@@ -36,7 +35,7 @@ class Config:
     DATASET_PATH = "dataset"
     RETRAIN_DIR = os.path.join("dataset", "retrain")
 
-    TRAIN_MODE = 'synth'   # 'manual' | 'synth' | 'both'
+    TRAIN_MODE = 'synth'
 
     NORMALIZE_MEAN = [0.54288839, 0.52424041, 0.52013308]
     NORMALIZE_STD = [0.32821858, 0.31147094, 0.30761928]
@@ -52,7 +51,6 @@ def set_seed(seed: int = Config.SEED):
     torch.backends.cudnn.benchmark = False
 
 
-# ====================== TRANSFORMS ======================
 def get_transforms():
     train_transform = A.Compose([
         A.RandomResizedCrop(size=(Config.IMG_SIZE, Config.IMG_SIZE), scale=(0.85, 1.0), ratio=(0.75, 1.35)),
@@ -82,7 +80,6 @@ def get_transforms():
     return train_transform, val_transform
 
 
-# ====================== DATASET ======================
 class AnimeGroupDataset(Dataset):
     def __init__(self, root_dir: str, transform=None, groups: List[str] = None):
         self.root_dir = root_dir
@@ -115,7 +112,6 @@ class AnimeGroupDataset(Dataset):
             best_idx = png_files.index(best_file)
             other_indices = [i for i in range(len(png_files)) if i != best_idx]
 
-            # Эмбеддинги для группы
             imgs = [val_transform(image=np.array(Image.open(os.path.join(group_path, png_files[idx])).convert('RGB')))['image']
                     for idx in [best_idx] + other_indices]
 
@@ -127,7 +123,6 @@ class AnimeGroupDataset(Dataset):
             others_feat = features[1:]
             sims = torch.mm(best_feat, others_feat.t()).squeeze(0)
 
-            # Пары: лучший vs остальные
             for i, sim in enumerate(sims.cpu().numpy()):
                 idx_other = other_indices[i]
                 if build_chains and sim > sim_threshold:
@@ -137,7 +132,6 @@ class AnimeGroupDataset(Dataset):
                 if build_chains:
                     self.pairs.append((group, idx_other, best_idx, -1))
 
-            # Цепочки проигравших
             if build_chains:
                 sorted_sub_idx = torch.argsort(sims, descending=True).cpu().numpy()
                 ranked_others = [other_indices[i] for i in sorted_sub_idx]
@@ -179,7 +173,6 @@ class AnimeGroupDataset(Dataset):
         return img_a, img_b, torch.tensor(target, dtype=torch.float32), group
 
 
-# ====================== MODEL ======================
 class EnhancedAnimeRanker(nn.Module):
     def __init__(self):
         super().__init__()
@@ -225,7 +218,6 @@ class EnhancedAnimeRanker(nn.Module):
         return scores.squeeze(-1) if num_images == 1 else scores
 
 
-# ====================== LOSS ======================
 class SoftFocalPairwiseLoss(nn.Module):
     def __init__(self, alpha=0.75, gamma=2.0, margin=0.9, temperature=0.7):
         super().__init__()
@@ -243,7 +235,6 @@ class SoftFocalPairwiseLoss(nn.Module):
         return loss.mean()
 
 
-# ====================== UTILS ======================
 def read_groups_from_txt(file_path: str) -> List[str]:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Файл {file_path} не найден")
@@ -263,7 +254,6 @@ def worker_init_fn(worker_id):
     np.random.seed(Config.SEED + worker_id)
 
 
-# ====================== EVALUATION ======================
 @torch.no_grad()
 def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device):
     model.eval()
@@ -292,7 +282,6 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device):
             group_images_dict[gid].append(best_images[i:i+1].cpu())
             group_images_dict[gid].append(other_images[i:i+1].cpu())
 
-    # Оценка по группам
     for group_id, images_list in group_images_dict.items():
         if len(images_list) < 8:
             continue
@@ -342,19 +331,17 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device):
     }
 
 
-# ====================== TRAINING ======================
 def train():
     set_seed()
     print(f"Using device: {Config.DEVICE} | Mode: {Config.TRAIN_MODE.upper()}\n")
 
     Path(Config.RETRAIN_DIR).mkdir(parents=True, exist_ok=True)
 
-    global val_transform   # нужно для initialize_pairs
+    global val_transform
     train_transform, val_transform = get_transforms()
 
     model = EnhancedAnimeRanker().to(Config.DEVICE)
 
-    # ==================== Datasets ====================
     if Config.TRAIN_MODE == 'manual':
         groups = read_groups_from_txt("train.txt")
         train_dataset = AnimeGroupDataset(Config.DATASET_PATH, train_transform, groups)
@@ -382,12 +369,10 @@ def train():
     else:
         raise ValueError("train_mode должен быть 'manual', 'synth' или 'both'")
 
-    # Validation dataset
     val_groups = read_groups_from_txt("val.txt")
     val_dataset = AnimeGroupDataset(Config.DATASET_PATH, val_transform, val_groups)
     val_dataset.initialize_pairs(model, Config.DEVICE, build_chains=False)
 
-    # ==================== DataLoaders ====================
     train_loader = DataLoader(
         train_dataset,
         batch_size=Config.BATCH_SIZE,
@@ -412,7 +397,6 @@ def train():
         persistent_workers=False
     )
 
-    # ==================== Optimizer & Scheduler ====================
     optimizer = torch.optim.AdamW([
         {'params': model.backbone.parameters(), 'lr': Config.BACKBONE_LR},
         {'params': model.rank_head.parameters(), 'lr': Config.HEAD_LR}
@@ -441,14 +425,12 @@ def train():
             other_images = other_images.to(Config.DEVICE, non_blocking=True)
             targets = targets.to(Config.DEVICE, non_blocking=True)
 
-            # Forward + Loss (без autocast)
             scores_best = model(best_images.unsqueeze(1))
             scores_other = model(other_images.unsqueeze(1))
             loss = criterion(scores_best, scores_other, targets)
 
             scaler.scale(loss).backward()
 
-            # Градиентный клиппинг + сбор норм
             scaler.unscale_(optimizer)
             head_norm = torch.nn.utils.clip_grad_norm_(model.rank_head.parameters(), Config.GRAD_CLIP)
             backbone_norm = torch.nn.utils.clip_grad_norm_(model.backbone.parameters(), Config.GRAD_CLIP)
