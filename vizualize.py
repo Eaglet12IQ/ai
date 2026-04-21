@@ -154,7 +154,7 @@ if __name__ == "__main__":
         edgecolors='none'
     )
    
-    plt.title('t-SNE проекция эмбеддингов изображений (Anime Ranker)',
+    plt.title('t-SNE проекция эмбеддингов изображений',
               fontsize=16, pad=20)
     plt.xlabel('t-SNE 1')
     plt.ylabel('t-SNE 2')
@@ -174,34 +174,3 @@ if __name__ == "__main__":
     # Сохраняем
     plt.savefig('tsne_embeddings_anime_ranker.png', dpi=300, bbox_inches='tight')
     plt.show()
-   
-    # ====================== ИНТЕРАКТИВНАЯ ВЕРСИЯ ======================
-    try:
-        import plotly.express as px
-       
-        df_plot = pd.DataFrame({
-            'TSNE1': embedding_2d[:, 0],
-            'TSNE2': embedding_2d[:, 1],
-            'is_best': ['Лучшее' if lb else 'Обычное' for lb in labels],
-            'group': groups,
-            'position': positions,
-            'filename': df['filename'].values
-        })
-       
-        fig = px.scatter(
-            df_plot, x='TSNE1', y='TSNE2',
-            color='is_best',
-            hover_data=['group', 'position', 'filename'],
-            color_discrete_map={'Лучшее': '#d62728', 'Обычное': '#1f77b4'},
-            title='Интерактивная t-SNE проекция эмбеддингов (наведи курсор на точки)',
-            width=1000,
-            height=800
-        )
-        fig.write_html("tsne_embeddings_interactive.html")
-        print("Интерактивная версия сохранена: tsne_embeddings_interactive.html")
-    except ImportError:
-        print("Plotly не установлен — интерактивная версия не создана (pip install plotly)")
-   
-    print("\nГотово! Файлы сохранены:")
-    print("   • tsne_embeddings_anime_ranker.png")
-    print("   • tsne_embeddings_interactive.html (если plotly установлен)")
