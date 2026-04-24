@@ -17,6 +17,7 @@
 11. [ComfyUI Workflows](#comfyui-workflows)
 12. [База данных](#база-данных)
 13. [Утилиты](#утилиты)
+14. [Документация](#документация)
 
 ---
 
@@ -62,64 +63,69 @@
 ## Структура проекта
 
 ```
-Отбор изображений
-├── predict.py                 # Отбор лучших (4-level tournament)
-│
 Модели обучения (ранжирование)
-├── retrain.py                 # Дообучение на новых данных
-├── new_top.py                 # SoftFocalPairwiseLoss
-├── new_top_test.py            # SoftFocalPairwiseLoss + SEBlock
-├── listwise.py                # Listwise + Pairwise loss
-├── test.py                    # ResNet + SentenceTransformer
-├── test33.py                  # ReduceLROnPlateau
+├── new_top_test2.py         # Основной скрипт: Config class, AMP, K-Fold, train/val/retrain
+├── retrain.py               # Дообучение на новых данных
+├── new_top.py               # SoftFocalPairwiseLoss
+├── new_top_test.py          # SoftFocalPairwiseLoss + SEBlock
+├── listwise.py              # Listwise + Pairwise loss
+├── test.py                  # ResNet + SentenceTransformer
+├── test33.py                # ReduceLROnPlateau + validation loss
 │
 Эксперименты (K-Fold)
-├── test 7036 3725.py          # ListNet + RankNet
-├── test 7036 3883.py          # LambdaLoss (NDCG-based)
-├── test 7046 3883.py          # ListNet + RankNet (LayerNorm)
-├── test 7118 4112.py          # Top1Probability + Pairwise
-├── test 7177 4299.py          # Top1Probability + Pairwise
+├── test 7036 3725.py        # ListNet + RankNet
+├── test 7036 3883.py        # LambdaLoss (NDCG-based)
+├── test 7046 3883.py        # ListNet + RankNet (LayerNorm)
+├── test 7118 4112.py        # Top1Probability + Pairwise
+├── test 7177 4299.py        # Top1Probability + Pairwise
+│
+Визуализация
+├── vizualize.py             # t-SNE проекция эмбеддингов
+├── vizualize2.py            # Расширенная статистика и визуализация
+│
+Отбор изображений
+├── predict.py               # Отбор лучших (4-level tournament)
 │
 Генерация и API
-├── vlm.py                     # VLM для анимационных промптов
-├── danbooru_resnet.py         # ResNet50 теггер (6000 тегов)
-├── test_resnet50_danbooru.py  # Тест Danbooru теггера
-├── comfyui_workflow.py        # Полный автоматический пайплайн
+├── vlm.py                   # VLM для анимационных промптов
+├── danbooru_resnet.py       # ResNet50 теггер (6000 тегов)
+├── test_resnet50_danbooru.py# Тест Danbooru теггера
+├── comfyui_workflow.py      # Полный автоматический пайплайн
 │
 Danbooru API
 ├── danbooru_api/
-│   ├── main.py                # Сбор постов с прокси
-│   ├── __init__.py            # Python package
-│   ├── character_tags.txt     # Разрешённые персонажи
-│   ├── skip_tags.txt          # Теги для пропуска
-│   ├── remove_tags.txt        # Теги для удаления
-│   ├── new_tags.txt           # Новые найденные теги
-│   └── danbooru_posts.db      # SQLite база
+│   ├── main.py              # Сбор постов с прокси
+│   ├── __init__.py          # Python package
+│   ├── character_tags.txt   # Разрешённые персонажи
+│   ├── skip_tags.txt        # Теги для пропуска
+│   ├── remove_tags.txt      # Теги для удаления
+│   ├── new_tags.txt         # Новые найденные теги
+│   └── danbooru_posts.db    # SQLite база
 │
 LLM модули
 ├── llm/
-│   ├── llm2_model.py          # Transformer генератор тегов
-│   ├── llm2_dataset.py        # CSV → уникальные промпты
-│   ├── parse_dataset.py       # Парсинг CSV (Danbooru API)
-│   ├── shuffle_dataset.py     # Перемешивание и фильтрация
-│   └── tag_coverage.py        # Анализ покрытия тегов
+│   ├── llm2_model.py        # Transformer генератор тегов
+│   ├── llm2_dataset.py      # CSV → уникальные промпты
+│   ├── parse_dataset.py     # Парсинг CSV (Danbooru API)
+│   ├── shuffle_dataset.py   # Перемешивание + Zipf/Jaccard анализ
+│   └── tag_coverage.py      # Анализ покрытия тегов
 │
 Workflows
-├── base.json                  # Генерация аниме (ComfyUI)
-├── ez.json                    # Wan2.1 I2V анимация
-├── class_names_6000.json      # 6000 Danbooru тегов
+├── base.json                # Генерация аниме (ComfyUI)
+├── ez.json                  # Wan2.1 I2V анимация
+├── class_names_6000.json    # 6000 Danbooru тегов
 │
 Утилиты
-├── train.py                   # Очистка кэша HuggingFace
-├── meanstd.py                 # Вычисление mean/std
-├── util_clear_metadata.py     # Очистка метаданных PNG
-├── sdfsdf.py                  # SQLite утилиты
-├── util test.py               # Сброс autoincrement
-├── train.txt / val.txt        # Сплиты (set_XXX)
-└── dataset/                   # Обучающие данные
-    ├── train/                 # train группы
-    ├── val/                   # val группы
-    └── retrain/               # дообучение
+├── meanstd.py               # Вычисление mean/std
+├── util_clear_metadata.py   # Очистка метаданных PNG
+├── sdfsdf.py                # SQLite утилиты
+├── util test.py             # Сброс autoincrement
+├── train.py                 # Очистка кэша HuggingFace
+├── train.txt / val.txt      # Сплиты (set_XXX)
+└── dataset/                 # Обучающие данные
+    ├── train/               # train группы
+    ├── val/                 # val группы
+    └── retrain/             # дообучение
 ```
 
 ---
@@ -129,6 +135,7 @@ Workflows
 ```bash
 pip install torch torchvision albumentations pillow numpy scikit-learn tqdm
 pip install transformers bitsandbytes
+pip install matplotlib pandas plotly
 ```
 
 ---
@@ -139,7 +146,13 @@ pip install transformers bitsandbytes
 
 Используйте `base.json` как шаблон workflow в ComfyUI.
 
-### 2. Отбор лучших изображений
+### 2. Визуализация эмбеддингов
+
+```bash
+python vizualize.py  # t-SNE проекция с подсветкой лучших изображений
+```
+
+### 3. Отбор лучших изображений
 
 ```python
 from predict import select_best_4level_flat
@@ -155,9 +168,17 @@ select_best_4level_flat(
 )
 ```
 
-### 3. Обучение модели
+### 4. Обучение модели
 
 ```python
+# Основной вариант (K-Fold, AMP, Config class)
+from new_top_test2 import train
+train()
+
+# Дообучение на новых данных
+from retrain import retrain
+retrain()
+
 # Базовый вариант (pairwise)
 from new_top import train
 train()
@@ -165,28 +186,24 @@ train()
 # Комбинированный лосс
 from listwise import train
 train()
-
-# Дообучение
-from retrain import retrain
-retrain()
 ```
 
-### 4. VLM генерация промптов
+### 5. VLM генерация промптов
 
 ```python
 from vlm import generate_animation_prompt
 prompt = generate_animation_prompt("image.png")
 ```
 
-### 5. LLM генерация тегов
+### 6. LLM генерация тегов
 
 ```bash
 python llm/llm2_dataset.py
-python llm/shuffle_dataset.py
+python llm/shuffle_dataset.py  # включает Zipf + Jaccard анализ
 python llm/llm2_model.py
 ```
 
-### 6. Сбор данных с Danbooru
+### 7. Сбор данных с Danbooru
 
 ```python
 # Вариант 1: по тегам
@@ -197,14 +214,14 @@ main(search_type="character", tag="sailor moon", rating="general")
 python llm/parse_dataset.py
 ```
 
-### 7. Утилиты
+### 8. Утилиты
 
 ```bash
-# Очистка метаданных PNG
-python util_clear_metadata.py "D:\finish" --backup
-
 # Вычисление статистик датасета
 python meanstd.py
+
+# Очистка метаданных PNG
+python util_clear_metadata.py "D:\finish" --backup
 ```
 
 ---
@@ -268,19 +285,20 @@ MLP Head: 4480 → ... → 1
 
 ## Варианты обучения
 
-| Файл | Подход | Loss |
-|------|--------|------|
-| `retrain.py` | Дообучение | SoftFocalPairwiseLoss |
-| `new_top.py` | Pairwise | SoftFocalPairwiseLoss |
-| `new_top_test.py` | Pairwise + SEBlock | SoftFocalPairwiseLoss |
-| `listwise.py` | Listwise + Pairwise | ListwiseLoss + PairwiseMarginLoss |
-| `test.py` | Pairwise + Text | PairwiseRankingLoss |
-| `test33.py` | ReduceLROnPlateau | SoftFocalPairwiseLoss |
-| `test 7036 3725.py` | K-Fold 5 | ListNetLoss + RankNetLoss |
-| `test 7036 3883.py` | K-Fold 5 | LambdaLoss |
-| `test 7046 3883.py` | K-Fold 5 | ListNetLoss + RankNetLoss |
-| `test 7118 4112.py` | K-Fold 5 | Top1Probability + Pairwise |
-| `test 7177 4299.py` | K-Fold 5 | Top1Probability + Pairwise |
+| Файл | Подход | Loss | Особенности |
+|------|--------|------|-------------|
+| `new_top_test2.py` | Pairwise | SoftFocalPairwiseLoss | **Основной**: Config class, AMP, K-Fold, train/val/retrain |
+| `retrain.py` | Дообучение | SoftFocalPairwiseLoss | Классический скрипт дообучения |
+| `new_top.py` | Pairwise | SoftFocalPairwiseLoss | Базовая версия |
+| `new_top_test.py` | Pairwise + SEBlock | SoftFocalPairwiseLoss | С attention механизмом |
+| `listwise.py` | Listwise + Pairwise | ListwiseLoss + PairwiseMarginLoss | Комбинированный лосс |
+| `test.py` | Pairwise + Text | PairwiseRankingLoss | С текстовыми эмбеддингами |
+| `test33.py` | Pairwise | SoftFocalPairwiseLoss | ReduceLROnPlateau + validation loss |
+| `test 7036 3725.py` | K-Fold 5 | ListNetLoss + RankNetLoss | |
+| `test 7036 3883.py` | K-Fold 5 | LambdaLoss | NDCG-based |
+| `test 7046 3883.py` | K-Fold 5 | ListNetLoss + RankNetLoss | С LayerNorm |
+| `test 7118 4112.py` | K-Fold 5 | Top1Probability + Pairwise | |
+| `test 7177 4299.py` | K-Fold 5 | Top1Probability + Pairwise | |
 
 ### K-Fold Cross-Validation
 
@@ -346,7 +364,6 @@ loss = top1_weight * top1_loss + pairwise_weight * pairwise_loss
 | **NDCG@5** | Normalized Discounted Cumulative Gain |
 | **Top-1 Accuracy** | Правильный выбор лучшего |
 | **Top-2 Accuracy** | Лучшее в топ-2 |
-| **SWA NDCG** | NDCG со Stochastic Weight Averaging |
 
 ---
 
@@ -354,12 +371,11 @@ loss = top1_weight * top1_loss + pairwise_weight * pairwise_loss
 
 | Параметр | Описание | Значение |
 |----------|----------|----------|
-| `img_size` | Размер изображения | 360 |
+| `img_size` | Размер изображения | 224 (training) / 360 (validation) |
 | `batch_size` | Размер батча | 32 |
 | `head_lr` | LR для головы | 1e-4 / 5e-5 |
 | `backbone_lr` | LR для backbone | 1e-6 / 1e-5 |
 | `epochs` | Эпох | 150 |
-| `swa_start` | Старт SWA | 80 |
 | `n_folds` | K-Fold | 5 |
 | `test_size` | Test сплит | 0.1 |
 | `weight_decay` | L2 регуляризация | 0.05 |
@@ -415,11 +431,13 @@ CREATE TABLE posts (
 
 | Скрипт | Назначение |
 |--------|------------|
+| `vizualize.py` | t-SNE визуализация эмбеддингов |
+| `vizualize2.py` | Расширенная визуализация и статистика |
 | `meanstd.py` | Вычисление mean/std для нормализации |
 | `util_clear_metadata.py` | Очистка метаданных из PNG |
 | `sdfsdf.py` | Работа с SQLite |
 | `util test.py` | Сброс autoincrement |
-| `comfyui_workflow.py` | Полный пайпайн: тег → генерация → отбор → анимация |
+| `comfyui_workflow.py` | Полный пайплайн: тег → генерация → отбор → анимация |
 
 ### Автоматический пайплайн (comfyui_workflow.py)
 
@@ -434,6 +452,37 @@ CREATE TABLE posts (
 8. Добавить в архив
 9. Выключить ПК
 ```
+
+---
+
+## Документация
+
+### Курсовая/дипломная работа
+
+**Овчаренко К.С. ЭФБО-04-23 Разработка моделей для генерации промптов и ранжирования изображений.docx**
+
+Подробное описание проекта включает:
+
+#### Теоретическая часть
+
+**Модель генерации промптов:**
+- Сбор данных с Danbooru API с фильтрацией по разрешённым персонажам
+- Предобработка: двойное перемешивание, отсечение топ-1000 тегов
+- Анализ по закону Ципфа (s = -1.1151) и матрица совместной встречаемости (Jaccard)
+- Mixup-аугментация для улучшения обобщения
+- Архитектура: decoder-only трансформер с нуля (D_MODEL=512, NHEAD=8, NUM_LAYERS=4)
+
+**Модель ранжирования изображений:**
+- Датасет: группы по 5 изображений с разметкой лучшего
+- Pairwise-подход с кастомным SoftFocalPairwiseLoss
+- Backbone: ResNet-50, предобученная на Danbooru
+- Метрика: NDCG@5, Top-1/Top-2 Accuracy
+
+#### Практическая часть
+
+- Реализация сбора данных: 158 256 → 143 714 уникальных записей
+- Обучение модели промптов: 120 эпох с Mixup-аугментацией
+- Полный разбор кода с листингами функций
 
 ---
 
